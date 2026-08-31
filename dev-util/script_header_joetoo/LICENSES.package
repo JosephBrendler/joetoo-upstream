@@ -1,0 +1,31 @@
+# package licensing summary for script_header_joetoo
+# This file documents conclusions drawn from provenance review
+#   (copyright and licensing applicable to package contents) and is built to be
+#   machine-readable so that the joetoo "tarup" script can use it to
+#   determine exactly which licenses to include in the package tarball
+#   by non-blank uncommented lines
+# Note: each of these license values must be a valid SPDX License Identifiers
+#   and each identifier must be listed on its own single line
+#   to be unambiguous and machine readable. For Example (for a single license) --
+#     GPL-3.0-or-later
+# Note: if upstream documents licenses with SPDX License Expressions,
+#   will have to resolve them to determine which individual license texts tarup
+#   should install. For example (when a component part of the package allows user choice) --
+#     MIT OR Apache-2.0 --> drop "OR" and list each on a separate line
+# (Reference: https://spdx.org/licenses/)
+
+# package-license:
+GPL-3.0-or-later
+
+# required-license-texts:
+GPL-3.0-or-later
+
+# provenance-summary:
+# The copyrightable software in this package is authored by Joseph Brendler
+# and is distributed under GPL-3.0-or-later.
+
+# Some scripts manipulate Unicode code points, UTF-8 byte sequences, and
+# Unicode characters. No Unicode-licensed data files or other Unicode
+# source material are distributed as part of this package.
+
+# No additional third-party license texts are required for this package.
