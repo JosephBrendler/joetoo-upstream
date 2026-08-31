@@ -1,4 +1,7 @@
 #!/bin/sh
+# Copyright 2024-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # this is a template for a local user-script specific commandline argument module
 # (to extend script_header_joetoo's process_cmdline capability)
 #

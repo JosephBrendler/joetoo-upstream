@@ -1,6 +1,9 @@
 #!/bin/ash
-# joetoo_cli_example - template app for joetoo CLI (c) Joe Brendler 2026-7789
+# Copyright 2024-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
+# joetoo_cli_example - template app for joetoo CLI
+
 script_header_installed_dir="/usr/sbin"
 #script_header_installed_dir=/home/joe/myUtilities/dev-util/script_header_joetoo
 header="${script_header_installed_dir%/}/script_header_joetoo"

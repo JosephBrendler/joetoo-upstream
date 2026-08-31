@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2017-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 #   script header with basic functions
 # Author: joe brendler 26 Jan 2017
 #         24 June 2025 - v1.0.0 moved to /usr/sbin/ and renamed/consolidated script_header_joetoo_extended

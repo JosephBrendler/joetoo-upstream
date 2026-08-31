@@ -1,5 +1,8 @@
-#
+# Copyright 2024-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 # script_header_joetoo_unicode - raw hex codepoint definitions for the superset of
+
+#
 #   unicode characters used in script_header_joetoo
 
 #-----[ raw hex Unicode/Emojis ]--------------------------------------------------------------

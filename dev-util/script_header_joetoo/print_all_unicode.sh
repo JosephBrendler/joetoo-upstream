@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright 2024-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # source the main header (which in turn sources the _unicode library)
 . /usr/sbin/script_header_joetoo

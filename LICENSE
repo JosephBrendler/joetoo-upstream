@@ -1,0 +1,26 @@
+joetoo-upstream Licensing
+
+Copyright (C) Joseph Brendler
+
+Unless otherwise stated in an individual file or accompanying
+documentation, copyrightable software in this repository authored by
+Joseph Brendler is licensed under the GNU General Public License,
+version 3 or (at your option) any later version.
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+The complete text of the GNU General Public License version 3 is
+provided in:
+
+    LICENSES/GPL-3.0-or-later.txt
+
+This repository also contains material derived from or incorporating
+work by other copyright holders. Such material remains subject to its
+applicable copyright and license terms. File-specific notices and
+license declarations take precedence over the repository default.
+
+Additional license texts applicable to material in this repository are
+provided in the LICENSES directory.
+
+See doc/licensing.md for the repository's licensing policy, third-party
+material, attribution, and known exceptions.
