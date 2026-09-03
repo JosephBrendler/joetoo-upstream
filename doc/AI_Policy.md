@@ -1,4 +1,4 @@
-AI Policy for joetoo-upstream
+#AI Policy for joetoo-upstream
 
 joetoo-upstream's human developer(s) may use AI tools for research, discussion, debugging, design review, and suggestions. AI tools may be used in an advisory capacity only. Developers may not authorize any agentic AI system to modify the repository, execute its development workflow, or commit changes.
 
