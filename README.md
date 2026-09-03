@@ -21,7 +21,7 @@ dev-sbc/                            dev-sbc/
 dev-util/                           dev-util/
 joetoo-base/                        joetoo-base/
 sys-kernel/                         sys-kernel/
-   ...                                 ...
+   ...
 `Note: Some of these categories (e.g. dev-sbc) do not exist in upstream Gentoo profiles, and are only defined in profiles maintained in the joetoo repository
 
 A package in the `joetoo` repository may therefore install, configure, or otherwise consume software maintained here.
