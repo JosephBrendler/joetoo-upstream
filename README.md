@@ -1,8 +1,8 @@
-# myUtilities
+# joetoo-upstream
 
-`myUtilities` is the source-code repository for **joetoo**, a collection of tools, development resources, system-building automation, configuration utilities, and platform-support and script-development support software used to build and maintain joetoo/Gentoo Linux systems across multiple hardware architectures.
+`joetoo-upstream` is the source-code repository for **joetoo**, a collection of tools, development resources, system-building automation, configuration utilities, and platform-support and script-development support software used to build and maintain joetoo/Gentoo Linux systems across multiple hardware architectures.
 
-The corresponding ebuild repository supporting joetoo use of the Gentoo Portage package manager is [joetoo](https://github.com/JosephBrendler/joetoo).
+The external, dependent ebuild repository functioning as a Gentoo overlay via use of the Gentoo Portage package manager is [joetoo](https://github.com/JosephBrendler/joetoo).
 
 ## Purpose
 
@@ -13,7 +13,7 @@ Although the project began as a simple collection of personal Linux utilities, a
 This source repository and the ebuild repository intentionally have the same directory structures reflecting the scope of category/package_name existent in joetoo:
 
 ```text
-myUtilities                         joetoo
+joetoo-upstream                         joetoo
 (sources)                            (ebiuilds)
 
 dev-build/                          dev-build/
@@ -45,7 +45,7 @@ This board and platform framework also facilitates the development and maintenan
 
 One near-term architectural goal for joetoo is the centralization this knowledge described above, so individual packages do not each maintain independent lists or `case` statements for every supported board (as is currently the case in supporting ebuilds).  To that end a joetoo platform eclass is beginning development.
 
-See the [joetoo Platform Architecture](https://github.com/JosephBrendler/myUtilities/blob/master/docs/platform-architecture.md).
+See the [joetoo Platform Architecture](https://github.com/JosephBrendler/joetoo-upstream/blob/master/docs/platform-architecture.md).
 
 
 ## Major Components
@@ -86,7 +86,7 @@ Kernel-related packages supporting kernel construction (including crossbuilding)
 
 ## Relationship to the `joetoo` Repository
 
-`myUtilities` contains **source and implementation**.
+`joetoo-upstream` contains **source and implementation**.
 
 The [joetoo](https://github.com/JosephBrendler/joetoo) repository contains the corresponding **Gentoo ebuilds, metadata, profiles, package integration, and repository-level configuration** used to deploy that software through Portage.
 
@@ -98,7 +98,7 @@ The repositories should therefore be considered two parts of the same system rat
               +------------+------------+
               |                         |
               v                         v
-         myUtilities                  joetoo
+         joetoo-upstream                  joetoo
        source / logic            ebuilds / packaging
               |                         |
               +------------+------------+
@@ -119,11 +119,13 @@ That document provides the high-level architectural map and links to detailed do
 
 joetoo is an actively developed personal Linux infrastructure project originally begun in 2014. Interfaces, package organization, platform definitions, and build procedures may change as the common platform architecture is consolidated. Existing naming sometimes reflects the project's origins in SBC support even where the underlying mechanism now applies more generalized.
 
-## Development and AI Assistance
+## Development and AI Policy
 
-joetoo's human developer(s) may use AI tools for research, discussion, debugging, design review, and suggestions. AI tools may be used in an advisory capacity only. Developers may not authorize any agentic AI system to modify the repository, execute its development workflow, or commit changes.
+joetoo-upstream's human developer(s) may use AI tools for research, discussion, debugging, design review, and suggestions. AI tools may be used in an advisory capacity only. Developers may not authorize any agentic AI system to modify the repository, execute its development workflow, or commit changes.
 
 All changes to this repository are made, reviewed, tested as appropriate, documented in the VCS workflow, and committed by a human developer. The human developer(s) retain responsibility for the design, implementation, correctness, licensing, and provenance of committed content.
+
+The AI policy of joetoo is distinct and separate from that of joetoo-upstream. See [joetoo AI Policy](https://github.com/JosephBrendler/joetoo/README.md)
 
 ## License
 
