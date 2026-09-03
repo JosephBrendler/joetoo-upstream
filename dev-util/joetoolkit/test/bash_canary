@@ -1,0 +1,23 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# bash_canary
+#
+# use this file to test validate_scripts by switching comment in/out below
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+#[ -z "$verbosity" ] && verbosity=${notice}  # should pass validate_scripts
+[ -z "$verbosity" ] && verbosity=${notice  # should fail validate_scripts [ missing } ]
+
+user="joe"
+archived_tarballs_dir="/home/${user}/archived_tarballs"
+sources_repository="/home/${user}/joetoo-upstream"
+
+#if [ "$user" = "joe" ] ; then echo "user is joe"; fi        # should pass validate_scripts
+if [ "$user" = "joe" ] ; then echo "user is joe";           # should fail validate_scripts [ missing fi ]

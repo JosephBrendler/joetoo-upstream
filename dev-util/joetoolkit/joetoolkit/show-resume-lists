@@ -4,10 +4,12 @@
 #   then run eselect python list/set/show to pick that same version
 #   then you can invoke this script with ./show-resume-lists
 #
+# also use this script to test validate_scripts by changing comment in/out below
 import portage
 mtimedb = portage.mtimedb
 
-print("----[ resume ]----")
+print("----[ resume ]----")    # should pass validate_scripts
+#print("----[ resume ]----"     # should fail validate_scripts [ missing ) ]
 print(portage.mtimedb.get("resume", {}).get("mergelist"))
 print("----[ resume_backup ]----")
 print(portage.mtimedb.get("resume_backup", {}).get("mergelist"))

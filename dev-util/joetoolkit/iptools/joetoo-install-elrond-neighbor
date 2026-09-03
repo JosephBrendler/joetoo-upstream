@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # mitigate 2025-2026 problem with Elrond
 # (joetoo dns/router/radvd/openvpn/stubby/chronyd... server)
@@ -19,3 +21,5 @@ ip_args+=( dev "${iface}" )   #...........# install the entry on this interface
 ip_args+=( nud permanent )   #............# make this neighbor mapping static
 
 ip "${ip_args[@]}"   #....................# install the mapping
+
+# result is "ip -6 neigh replace <IP> lladr <MAC> dev <iface> nuc permanent"

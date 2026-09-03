@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 source /usr/sbin/script_header_joetoo
 
@@ -7,6 +9,11 @@ set -o pipefail
 
 PN=${0##*/}   # like =$(basename $0) but w/o the subshell or function call
 
+# set of associative arrays keyed on the strings formed in the nodes array derived from $1
+# design intent was for these to be hostnames. If you want to include ips, you will have
+# to add logic in the check to decide whether to check for each ipv4 and ipv6
+# (you could do that with logic like this --
+#  ips=$(getent ahosts $node) and case "$ips" in  *:*) echo 6; *.*) echo 4;; esac )
 declare -A results4
 declare -A results6
 declare -A output4
@@ -28,6 +35,7 @@ usage() {
   j_msg -${notice} -m "${BYon}Example:${Boff} ${Gon}connectivity_check.sh ${BYon}\"elrond github.com\" ${BMon}1 1${Boff}"
   exit 1
 }
+
 show_result() {
   local result=$1 output="$2" elapsed="${3:-999}"
   local tx=0 rx=0 pct=100 ms="999999ms" sec=0 msg=""
@@ -73,12 +81,13 @@ getip6() {
     printf '%s' "${BGon}$ip${Boff}"
   fi
 }
+
 #-----[ main script ]---------------------------------------------------
 if [ "$1" = "-h" ] ; then usage
-elif [ ! -z "$1" ] ; then nodes=($1)  # dont quote, so quoted list $1 becomes array
+elif [ ! -z "$1" ] ; then nodes=($1)  # dont quote, so space delimited quoted list $1 becomes array
 fi
-count=${2:-3}  # default to 3 pings
-wait=${3:-2}   # defailt wait no more than 2 sec for each
+count=${2:-1}  # default to 1 ping
+wait=${3:-1}   # defailt wait no more than 1 sec for each
 
 for node in "${nodes[@]}"; do
   # determine target: if it contains a dot, use as is; else append ".brendler" to make it a fqdn

@@ -1,5 +1,7 @@
 #!/bin/bash
-# bashrc_aliases_include_joe_brendler
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # source this in your .bashrc file, where it says "Put your fun stuff here."
 
 #-----[ my aliases ]--------------------------------------------------------------------
@@ -12,24 +14,26 @@ alias lz='ls -alZ --color=tty' 2>/dev/null
 
 alias grep='grep --binary-files=text --color=auto'
 
-#alias cv='grep -Ev --color=auto "(^\s*$|^#)" 2>/dev/null'
-alias cv='grep -Ev --color=auto "(^\s*$|^\s*#)" 2>/dev/null'
+# strip blank lines and comments (clean view); note: \s is PCRE for zero+ whitespace
+#alias cv='grep -Ev --color=auto "(^\s*$|^\s*#)" 2>/dev/null'
+# ERE equivalent, where script_header_joetoo has defined W0="[[:space:]]*" (joetoo for zero+ whitespace)
+alias     cv='grep -Ev --color=auto "(^${W0}$|^${W0}#)" 2>/dev/null'
 
 alias dusort='du -bchx -d2 | sort -h'
 
-alias ce='checknotroot && check_everybody.sh'
+alias     ce='checknotroot && check_everybody.sh'
 
-alias es='emerge --sync joetoo && eix -uc --in-overlay joetoo'
-alias en='eix -#'  # eix names
+alias     es='emerge --sync joetoo && eix -uc --in-overlay joetoo'
+alias     en='eix -#'  # eix names
 
 alias   tmux='LC_CTYPE=en_US.utf8 tmux'  # force tmux   to utf-8
 alias screen='screen -U'                 # force screen to utf-8
 alias   nano='LC_ALL=en_US.UTF8 nano --tabsize=2'
 alias     bt='LC_ALL=en_US.UTF8 btop'
 
-alias dig='dig +search'
+alias    dig='dig +search'
 
-# converting alias gcsm to a function for clarity; still built to treat gpg failure as a warning rather than a blocker
+# remove pre-existing alias (which gcsm used to be) so we can use this function
 unalias gcsm 2>/dev/null
 gcsm() # (BASH) submit signed commit (follow with gpom to push)
 {   local _gcsm_msg="${1:-}"
@@ -37,22 +41,52 @@ gcsm() # (BASH) submit signed commit (follow with gpom to push)
     gpg --clearsign ~/cachetest > /dev/null 2>&1 || true  #..# sign file w pinentry, cache the key, ignore pcscd error msg
     [ -f ~/cachetest.asc ] || return 1   #...................# verify the file signature (.asc) was created
     rm ~/cachetest.asc  #....................................# remove the signature to reset
-    git commit -s -m "${_gcsm_msg}"  #.......................# sign the commit
+    git commit -s -S -m "${_gcsm_msg}"  #....................# signoff and sign the commit
 }
 # @usage gcsm <message>
+# @note author converted alias gcsm to a function for clarity, but this is still built
+# @append to treat gpg failure as a warning rather than a blocker
+# @note for git commit options --
+# @cont  -s | --signoff = add Signed-off-by line IAW GLEP-76 (DCO)
+# @cont  -S | --gpg-sign [<key-id>] = sign w gnupg signing key (or --no-gpg-sign; overrides default)
+# @note reference: https://www.kernel.org/pub/software/scm/git/docs/git-commit.html
+# @note if a repo's ./.git/config or the users /home/<user>/.gitconfig contains "gpgsign = true" in a [commit]
+# @cont block, and "signingkey = <gpg-key-id>" in a [user] block, then --gpg-sign will default
+# @cont to that and --no-gpg-sign will turn it off
 
-alias gpom='git push origin master'
+pcsm() # (BASH) submit signed commit (follow with gpom to push)
+{   local _gcsm_msg="${1:-}"
+    echo 'test' > ~/cachetest  #.............................# create a dummy file to sign
+    gpg --clearsign ~/cachetest > /dev/null 2>&1 || true  #..# sign file w pinentry, cache the key, ignore pcscd error msg
+    [ -f ~/cachetest.asc ] || return 1   #...................# verify the file signature (.asc) was created
+    rm ~/cachetest.asc  #....................................# remove the signature to reset
+    pkgdev commit --scan --signoff --gpg-sign -m "${_gcsm_msg}"  # signoff and sign the commit
+}
+# @usage pcsm <message>
+# @note note for pkgdev commit options --
+# @rule pcsm is prefered for eclass maintenance due tobetter metadata manifest mgmt via pkgdev commit
+# @cont  -s | --scan for QA
+# @warn  (*** caveat: for pkgdev commit, -s is NOT --signoff ***)
+# @cont  --signoff = add Signed-off-by line IAW GLEP-76 (DCO)
+# @cont  --gpg-sign (or --no-gpg-sign) passes --gpg-sign to git --commit
+# @cont  (there is no capital -S for pkgdev)
+# @note reference: https://pkgcore.github.io/pkgdev/man/pkgdev.html#id4
+# @note if a repo's ./.git/config or the users /home/<user>/.gitconfig contains "gpgsign = true" in a [commit]
+# @cont block, and "signingkey = <gpg-key-id>" in a [user] block, then --gpg-sign will default
+# @cont to that and --no-gpg-sign will turn it off
 
-alias qm='qemu-image-mount'
-alias ql='qemu-image-launch'
+alias   gpom='git push origin master'
 
-alias ow='xdotool_open_windows'
-alias cw='xdotool_close_windows'
-alias mw='xdotool_sizemove_this_window'
+alias     qm='qemu-image-mount'
+alias     ql='qemu-image-launch'
 
-alias tl='tail -n50'
+alias     ow='xdotool_open_windows'
+alias     cw='xdotool_close_windows'
+alias     mw='xdotool_sizemove_this_window'
 
-alias mb='mount /boot'
+alias     tl='tail -n50'
+
+alias     mb='mount /boot'
 
 alias kmerge='FEATURES="-getbinpkg -buildpkg -distcc" emerge -av --verbose-conflicts'
 alias icmerge='FEATURES="-collision-detect -protect-owned" emerge -1 --verbose-conflicts'

@@ -1,3 +1,7 @@
+#!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 locale-gen
 eselect locale set en_US.UTF-8
 . /etc/profile

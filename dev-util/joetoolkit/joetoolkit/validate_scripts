@@ -1,0 +1,343 @@
+#!/bin/bash
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# validate_scripts - check syntax or linting in all files found in specified directory tree
+
+# shellcheck source=/usr/sbin/script_header_joetoo
+# shellcheck source=/usr/sbin/script_header_joetoo_extended
+# shellcheck source=/usr/sbin/script_header_joetoo_unicode
+source /usr/sbin/script_header_joetoo
+
+#-----[ global variables ]-------------------------------------------------------------------
+
+PN=${0##*/}   # basename
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+# use "show-colors" to get a demonstrated list of colors in the joetoo pallet
+title_clr="$Con"
+line_clr="$BCon"
+
+shebang='#!/'   #.........# #! followed by absolute path; ' to protect from bash thinking ! means history
+
+# define embedded python command string to be used by python syntax checker below
+cmd_str='
+import ast   #.......................................# abstract syntax tree module for parsing
+import sys   #.......................................# access argv and stderr
+# catch syntax errors to control the output format
+try:   #.............................................# attempt to parse the target
+    with open(sys.argv[1], encoding="utf-8") as f:   # open target file as utf-8
+        ast.parse(f.read(), filename=sys.argv[1])    # parse source without executing it
+except SyntaxError as e:   #.........................# catch target syntax errors as exception e
+    # report the error with specific fields in format (omit noisy Traceback block)
+    print(f"{e.filename}:{e.lineno}:{e.offset}: SyntaxError: {e.msg}", file=sys.stderr)
+    sys.exit(1)   #..................................# return failure to check_syntax
+'   #................................................# end of cmd_str assignment
+
+# set pseudo-boolean based on script_header_joetoo global TRUE=0; FALSE=""
+j_msg "-${notice}" -p -n "looking for shellcheck ..."
+if command -v shellcheck &>/dev/null; then result=0; SHELLCHECK=$TRUE; else result=1; SHELLCHECK=$FALSE; fi
+handle_result "$result" "found" "not found" "$notice"
+
+# initialize other pseudo-booleans to defaults
+COMPACT=$FALSE   #.....# set if flags dictate, to display without per-file headings
+FAILURES_ONLY=$FALSE   # set if flags dictate, to display output only from failed checks
+LINT=$FALSE   #........# set if flags dictate, to run shellcheck instead of just language-native syngax check
+#......................# Note: SHELLCHECK must be $TRUE (installed) to use LINT
+
+# initialize other variables expected in the joetoo ecosystem
+logFile="/var/log/${PN}.log"
+
+# set up varlist for show_config
+varlist="PN BUILD verbosity loglevel bool.DEBUG bool.QUIET bool.LOGGING"
+varlist+=" bool.INTERACTIVE"
+varlist+=" bool.UNICODE_CAPABLE bool.UNICODE_DISABLE"
+varlist+=" rlv.logFile rlv.target"
+varlist+=" bool.SHELLCHECK bool.COMPACT bool.FAILURES_ONLY bool.LINT"
+
+#-----[ functions ]-------------------------------------------------------------------
+
+usage() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local msg="${BRon}usage${BWon}: ${BGon}${PN}${Boff} ${Con}[/path/to/target] ${BMon}[options]${Boff}"
+    j_msg "-${notice}" -p "$msg"
+    j_msg "-${notice}" -m "${BYon}Options --${Boff}"
+    msg="    ${BMon}-c|--compact${Boff} ${Con}...: ${BCon}compact (omit headings)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${BMon}-f|--failures${Boff} ${Con}..: ${BCon}show failures only${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${BMon}-s|--syntax${Boff} ${Con}....: ${BCon}use language-native syntax checker w e.g. bash -n(default)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${BMon}-l|--lint${Boff} ${Con}......: ${BCon}(for shell) use shellcheck instead${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${BMon}-h|--help${Boff} ${Con}......: ${BCon}Display this text${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    j_msg "-${notice}" -m "${BYon}Notes --${Boff}"
+    msg="    ${Con}(1) Target may be either a regular file or a directory (default: \$PWD)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${Con}(2) For shell, recommend first check just syntax, then maybe run again with ${BMon}-l${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${Con}(3) Recommend NOT using ${BMon}-l${Boff}${Con} on a directory with many files,${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${Con}    maybe use a temp dir to check a small batch of just shell scripts${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="        ${Con}(to avoid really long jobs and mixing shellcode linting with${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="        ${Con} perl/python (currently) syntax-checking only)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+}
+
+# first get the command line house in order - derived from work I did on jping
+normalize_cmdline() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
+    flags=()   #........# indexed array of normalized option flags (e.g. --lint -> l)
+    remaining_args=()   # indexed array of parameters not consumed as/with options; handed off after parsing
+
+    #...................# note: "$@" is the current set of positional parameters being parsed
+    local arg   #.......# the parameter currently being parsed; see arg="$1" below - first positional parameter in "$@"
+    #...................# (the semantic distinction is $1 is a "positional parameter",
+    #...................#  whereas values handled by the program's command line interface (like $arg) are called "arguments")
+    local chars   #.....# remaining characters in a the string of a compund arg (e.g. -cfl -> "cfl"
+    local ch   #........# the leftmost char extracted from chars for examination
+
+    # iterate throug positional parameters in $@
+    while [ $# -gt 0 ]; do
+        arg="$1"
+        shift
+
+        case "$arg" in
+            --)
+                # everything after -- is positional
+                remaining_args+=("$@")
+                break
+                ;;
+
+            --compact)   flags+=( c ) ;;
+            --failures)  flags+=( f ) ;;
+            --syntax)    flags+=( s ) ;;
+            --lint)      flags+=( l ) ;;
+            --help)      flags+=( h ) ;;
+
+            --*)
+                j_msg "-${err}" -p "invalid option [$arg]"
+                usage
+                exit 1
+                ;;
+
+            -?*)
+                # remove leading - and expand clustered short options
+                chars="${arg#-}"
+
+                while [ -n "$chars" ]; do
+                    ch="${chars:0:1}"   # assign first char as current character being parsed
+                    chars="${chars:1}"  # strip first char and keep the remainder
+
+                    # normalize upper-case short options (${var,,} is to_lower like ${var^^} is to_upper)
+                    ch="${ch,,}"
+
+                    case "$ch" in
+                        c|f|s|l|h)   # all currently allowed flags
+                            flags+=( "$ch" )
+                            ;;
+                        *)
+                            j_msg "-${err}" -p "invalid option [-$ch] in [$arg]"
+                            usage
+                            exit 1
+                            ;;
+                    esac
+                done
+                ;;
+
+            *)
+                # didn't fit any pattern above - save it; it is either target or an error
+                remaining_args+=( "$arg" )
+                ;;
+        esac
+    done
+}
+
+parse_cmdline() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local arg="" result=0
+
+    for arg in "${flags[@]}"; do
+        case "$arg" in
+            c) COMPACT=$TRUE ;;
+            f) FAILURES_ONLY=$TRUE ;;
+            s) LINT=$FALSE ;;
+            l) LINT=$TRUE ;;
+            h)
+                usage
+                exit 0
+                ;;
+        esac
+    done
+
+    if [ "${#remaining_args[@]}" -gt 1 ]; then
+        j_msg "-${err}" -p "only one target may be specified"
+        usage
+        exit 1
+    fi
+
+    target="${remaining_args[0]:-$PWD}"
+
+    # load target_array with 1 or more files depending on the nature of $target
+    if [ -d "$target" ]; then
+        # ingest filenames from a target directory (use -print0 for null-byte line termination
+        j_msg "-${notice}" -p -n "ingesting filenames from target"
+        mapfile -d '' target_array < <(find "$target" -type f -print0); result=$?
+        [ ${#target_array[@]} -gt 0 ] || die "find/mapfile failed - target_array is empty"
+        handle_result "$result" "ingested [${#target_array[@]}]" "" "$notice"
+    elif [ -f "$target" ]; then
+        #assign single filename to target_array
+        j_msg "-${notice}" -p -n "ingesting filename from target"
+        target_array=("$target"); result=$?
+        handle_result "$result" "ingested [${#target_array[@]}]" "" "$notice" || \
+            die "array assignment failed"
+
+    else
+        j_msg "-${err}" -p "target [$target] is not a regular file or directory"
+        exit 1
+    fi
+}
+
+choose_checker() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
+    local shebang_line="$1"
+    # check basename of cleaned first word of shebang_line to choose the executable command for checking syntax
+    local clean_first_word
+    clean_first_word=$(echo "$shebang_line" | awk '{print $1}' | sed 's|^#!||')
+    local base_executable="${clean_first_word##*/}"
+    j_msg "-${debug}" -p "base_executable: $base_executable"
+    # handle portable shebang wrappers (e.g. for python3 -> #!/usr/bin/env python3)
+    if [ "$base_executable" = "env" ]; then
+        # assign basename of second word of shebang_line
+        local second_word
+        second_word=$(echo "$shebang_line" | awk '{print $2}')
+        base_executable="${second_word##*/}"
+    fi
+    j_msg "-${debug}" -p "base_executable: $base_executable"
+    case "$base_executable" in
+        # for valid shells, use the executable with its noexec flag (just parse to check syntax)
+        sh|ash|bash|dash)
+            envvars=()
+            if [ $LINT ]; then
+                executable="$(command -v shellcheck)"
+                arguments=( -x -s "$base_executable" ) # -x = follow sources; -s names the shell (e.g. bash)
+            else
+                # fall back to e.g. bash -n
+                executable=$(command -v "$base_executable")
+                arguments=( -n )
+            fi
+            ;;
+        # for busybox, use ash
+        busybox)
+            envvars=()
+            if [ $LINT ]; then
+                executable="$(command -v shellcheck)"
+                arguments=( -x -s "$base_executable" ) # -x = follow sources; -s names the shell (e.g. bash)
+            else
+                # fall back to ash -n
+                executable=$(command -v "ash")
+                arguments=( -n )
+            fi
+            ;;
+        # for python, use -c w cmd_str assembled above (top of script)
+        python3)
+            envvars=()
+            executable=$(command -v "$base_executable")
+            arguments=( -c "$cmd_str" )
+            ;;
+        # for perl, ignore other args that may have been on the shebang_line, and use perl -c to check syntax
+        perl)
+            envvars=()
+            executable=$(command -v "$base_executable")
+            arguments=( -c )
+            ;;
+        # return 1 for invalid
+        *               ) return 1;;
+    esac
+    j_msg "-${debug}" -p "executable: $executable"
+    # cause return to be non-zero if this failed to set (or system doesnt have) the executable
+    [ -n "$executable" ] && [ -x "$executable" ]
+}
+
+sanity_check() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # generalize for more than one thing to check - return nonzero if any fail, and caller should then die
+    local FLAGGED=$FALSE
+    if [ $LINT ] && [ ! $SHELLCHECK ] ; then
+        j_msg "-${err}" "lint requested but shellcheck is not available"
+        FLAGGED=$TRUE
+    fi
+    # placeholder for other checks
+    [ $FLAGGED ] && return 1
+    return 0
+}
+
+#-----[ main script ]-------------------------------------------------------------------
+
+# normalize the command line to facilitate parsing
+# (e.g. translate --compact to ( c ) or -cfl to ( c f l )
+normalize_cmdline "$@" || die "failed to normalize_cmdline"
+# set actual logic flags and environment variables based on flags[]
+parse_cmdline || die "failed to parse_cmdline"
+
+show_config || die "failed to show_config"
+
+sanity_check || die "failed to sanity_check"
+
+confirm_continue_or_exit
+
+# interate through the one or more filenames in the target loaded by parse_cmdline
+for x in "${target_array[@]}" ; do
+    # ignore with warning if this file has no shell script shebang
+
+    # read the first line of each file into shebang_line
+    IFS= read -r shebang_line < "$x"
+    candidate="${shebang_line:0:3}"
+
+    # warn and skip if the captured text does not match standard shebang
+    [ "$candidate" = "$shebang" ] || { j_msg "-${warn}" -p "no shebang [$shebang] in file [$x]; skipping"; continue ; }
+
+    # call choose_checker;warn and skip if shebang is invalid
+    if ! choose_checker "$shebang_line"; then
+        j_msg "-${warn}" -p "Invalid shebang_line [$shebang_line]; skipping file [$x]"
+        continue
+    fi
+
+    # space with a blank line, and print file pathname, underlined
+    [ ! $COMPACT ] && {
+        echo; echo -e "${title_clr}${x}${Boff}";
+        echo -e "${line_clr}$(repeat '-' ${#x})${Boff}" ; }
+
+    # add optional debug info
+    j_msg "-${debug}" -p "envvars[*]: ${envvars[*]}"
+    j_msg "-${debug}" -p "executable: $executable"
+    j_msg "-${debug}" -p "arguments[*]: ${arguments[*]}"
+    j_msg "-${debug}" -p "full command: [env ${envvars[*]} $executable ${arguments[*]} $x]"
+
+    # build and use syntax checking command
+    # note: shell and python checks put nothing on stdout (fd 1), errors to stderr (fd 2), but
+    # perl puts errors on stderr and it also puts "syntax OK" on stderr on success
+    # So - redirect stderr to stdout and filter the misplaced syntax OK with grep, and
+    # use j_msg to communicate positive results as appropriate
+    if [ $FAILURES_ONLY ]; then
+        # note envvars array has assignment string(s) - use env to have the assignments evaluated in the environment
+        # also, use bash PIPESTATUS array to get exit status of the command, not the grep
+        env "${envvars[@]}" "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+        if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
+             j_msg "-${err}" -m "$x failed syntax check"
+        fi
+    else
+        # idx_* globals are generated by script_header_joetoo from the emoji registry
+        # shellcheck disable=SC2154
+        j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."
+        env "${envvars[@]}" "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+        result="${PIPESTATUS[0]}"
+        j_msg "-${notice}" -p -n "done; result:"
+        handle_result "$result" "Ok $bin_check_mark_button" "errors $bin_cross_mark" "$notice"
+    fi
+
+done

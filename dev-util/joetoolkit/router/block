@@ -1,7 +1,9 @@
-#! /bin/bash
+#!/bin/bash
+# Copyright 2012-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # /usr/local/sbin/block
-# original by BoneKracker; refined by brendlefly62
+# original by BoneKracker; refined by Joe Brendler
 # Rev. 11 October 2012; updated 10 April 2026
 # Tested with ipset 6.13
 

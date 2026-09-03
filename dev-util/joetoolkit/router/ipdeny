@@ -1,8 +1,10 @@
-#! /bin/bash
+#!/bin/bash
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # /usr/local/sbin/ipdeny
 # based on ipdeny by BoneKracker Rev. 11 October 2012
-# Modified by Joe Brendler Rev 21 Feb 2015 - ipset setlist size bugfix
+# Rev 21 Feb 2015 - ipset setlist size bugfix
 # Rev 17 Feb 2022 - further adapted to refer to ipsets separately loaded for ALL countries
 
 # Purpose: Use sets of ip networks registered in a country pre-loaded into a country-coded ipset

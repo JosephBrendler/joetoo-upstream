@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 source /usr/sbin/script_header_joetoo
 
 ipv4_filter="192.168."

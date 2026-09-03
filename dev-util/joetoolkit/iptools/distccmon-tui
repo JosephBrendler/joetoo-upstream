@@ -1,5 +1,7 @@
 #!/bin/bash
-# distccmon-tui   (c) joe brendler 2026
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+# distccmon-tui -  terminal user interface in which to observe distcc server and/or client activity
 #
 #  bi-modal (client/server) dashboard for distcc
 #  Note: uses script_header_joetoo including command line interface tools but not interactive sequencing

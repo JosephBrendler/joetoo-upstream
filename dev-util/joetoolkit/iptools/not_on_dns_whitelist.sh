@@ -1,6 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 # not_on_dns_whitelist.sh
-# Joe Brendler, 7 Sep 14
 # list dnsmasq dns querries for domains not entered in dns_whitelist
 #
 source /usr/sbin/script_header_joetoo

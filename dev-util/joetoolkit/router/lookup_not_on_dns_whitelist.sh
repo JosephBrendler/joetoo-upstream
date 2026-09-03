@@ -1,6 +1,8 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # lookup_not_on_dns_whitelist
-# Joe Brendler - 9 Aug 2014
 # filter dns logs to identify queries for urls not on my whitelist (defined
 # in the filter_log() function below, and lookup the ip address for each
 #
@@ -15,18 +17,27 @@ if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1
 
 [ -z $verbosity ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
 
+temp=$(mktemp -f)
+trap cleanup EXIT
+
 # ---[ Define local variables ]-----------------------------------
 
 SERVER="192.168.1.1"
 
 # ---[ local functions ]------------------------------------------
+cleanup() {
+   rm -rf "$temp"
+}
+
 filter_log()
 {
 # note that the "grep -v" commands in the pipe chain are the whitelist
 j_msg -${notice} -p "filtering..."
-./not_on_dns_whitelist.sh | grep -v "LOGFILE" | grep -v "not_on_dns_whitelist.sh" > temp
+#./not_on_dns_whitelist.sh | grep -v "LOGFILE" | grep -v "not_on_dns_whitelist.sh" > ${temp}
+# this must be in path
+not_on_dns_whitelist.sh | grep -v "LOGFILE" | grep -v "not_on_dns_whitelist.sh" > "$temp"
 j_msg -${notice} -p "Found these urls, not on whitelist:"
-cat temp | sed 's|^|   |'
+cat "$temp" | sed 's|^|   |'
 j_msg -${notice} -mp  # newline
 }
 
@@ -40,7 +51,7 @@ do
     var=$(printf '%s\n' $(nslookup $(printf '%s\n' $line | \
        cut -d' ' -f2) ${SERVER} | grep "Address" | grep -v "#" | cut -d' ' -f2 ))
   j_msg -${notice} -mp "$(printf '%s\n' $line | cut -d' ' -f2) \t$var"
-done < ./temp
+done < ${temp}
 }
 
 #---[ Main Script ]-----------------------
@@ -56,5 +67,5 @@ ip_lookup
 echo
 
 j_msg -${notice} -p "Cleaning up..."
-rm temp
+rm ${temp}
 j_msg -${notice} -p "Done."

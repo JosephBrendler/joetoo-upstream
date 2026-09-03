@@ -1,6 +1,8 @@
 # /etc/cron.d/update_ipset_countrycodes
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 # based on update_ipdeny by BoneKracker 4 November 2011
-# Modified: Joe Brendler 21 Feb 2015, further adopted for update_ipset_countrycodes 17 Feb 2022
+# further adopted for update_ipset_countrycodes 17 Feb 2022
 
 # Twice per day, poll for update to ipsets for each two-letter country coded top level domain (TLD)
 # Note: this will enable other ipset lists, like ipdeny, to refer to countrycode ipsets

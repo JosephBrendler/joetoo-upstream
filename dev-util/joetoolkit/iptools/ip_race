@@ -1,4 +1,10 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# background-parallel-"ping" with /dev/tcp port 22 and pick the ip that answers first
+#
+
 selected_ip_list=()
 tmp_ip_list=(fd62:6262:6262:0:6837:81cb:62fa:cc5e fd62:6262:6262:0:2bff:4078:2153:8ebe 192.168.62.129 192.168.62.193)
 test() {

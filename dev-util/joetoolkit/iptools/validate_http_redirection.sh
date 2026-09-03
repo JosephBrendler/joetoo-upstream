@@ -1,5 +1,8 @@
 #!/bin/bash
-# validate_http_redirection.sh   (c) joe brendler  2026-7860
+# Copyright 2026-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# validate_http_redirection.sh
 # first ingest an associative array of all hosts known by the dns,
 # tnen use socat to do a port 80 scan to identify hosts serving http,
 # then use curl -I to verify a 302 Found in http response header

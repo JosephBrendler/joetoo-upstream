@@ -1,6 +1,6 @@
 #!/bin/bash
-#
-# Joe Brendler 30 Jan 19 (c) 2014-3795
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # I used to do this by hacking into my router and digging out the wan ip
 # version 1 (2014) used python request, supplying username and password for
@@ -17,7 +17,19 @@
 # (1) speedtest --csv | cut -d',' -f11
 # (2) speedtest --json | jq -r '.client.ip'
 #
-# method 2 relies on app-misc/jq as well as
+# version3, method 2 relies on app-misc/jq as well as
 #                    net-analyzer/speedtest-cli
 #  but it should be more stable
-speedtest --json | jq -r '.client.ip'
+#speedtest --json | jq -r '.client.ip'
+#
+#
+# note - it is also possible to do this with neofetch, fastfetch, etc - example --
+# fastfetch --logo-type none -s PublicIp  ==>  Public IP: 123.456.789.123 (Fairfax, US)
+# (speedtest may be more reliable, fastfetch may be more private, faster)
+#
+# note - curl ipify is considered best practice:
+curl -s https://api.ipify.org
+#
+# and for MINIMAL privacy "leakage" - dig works
+# dig +short myip.opendns.com @resolver1.opendns.com
+# but that wont work for me because I have shorewall block DNS-bypass to upstream

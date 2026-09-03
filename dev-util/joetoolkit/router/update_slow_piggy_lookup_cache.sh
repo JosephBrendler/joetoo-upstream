@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # script for periodically updating a hosts list for addresses that otherwise frequenly fail first DoT lookup via stubby
 #

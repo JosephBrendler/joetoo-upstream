@@ -1,4 +1,8 @@
 #!/bin/sh
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
+# run logrotate as configured in /etc/logrotate.conf, and make a log entry with result
+
 /usr/sbin/logrotate /etc/logrotate.conf
 . /usr/sbin/loggit

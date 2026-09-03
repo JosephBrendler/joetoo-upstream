@@ -1,6 +1,8 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # /usr/sbin/loggit
-# Joe Brendler 1 Mar 2009; rev. 16 July 2026
 #
 # Modified from John Brendler's Rev. 20 July 2007
 

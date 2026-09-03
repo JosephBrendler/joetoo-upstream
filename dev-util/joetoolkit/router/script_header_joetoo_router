@@ -1,8 +1,12 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-#  script_header_joetoo_router  -  joe brendler (c) 2026 -7756
+#  script_header_joetoo_router
 #
 #  common functions required by scripts supporting my router/dns/firewall/vpn
+#  (dependent scripts are a sibset pf USE=router emerge joetoolkit, including
+#   lookup, display_foreign_connections, display_potential_beacons, connection_list.sh
 #  note: *client support functions belong in script_header_joetoo (if POSIX) or _bash
 #
 

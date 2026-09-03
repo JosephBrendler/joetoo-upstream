@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 #mysubnet="192.168.7.0/24"
 #mysubnet="192.168.67.0/24"
@@ -6,23 +8,19 @@
 #mysubnet="192.168.1.0/24"
 #mysubnet="192.168.64.0/22"
 
-outfile=/home/joe/nmap_report
+user="joe"
+outfile="/home/${user}/nmap_report"
 
 ABnet="192.168"
 #ABnet="10.0"
-#Cnet="64"
-Cnet="66"
-#Cnet="1"
-#MASKbits="22"
-MASKbits="24"
 
-[[ $# -gt 0 ]] && Cnet=$1
-[[ $# -gt 1 ]] && MASKbits=$2
+Cnet="${1:-62}"
+MASKbits="${2:-24}"
 
 mysubnet="${ABnet}.${Cnet}.0/${MASKbits}"
-rm ${outfile}
+rm -f "${outfile}"
 echo "Scanning subnet [ ${mysubnet} ]..."
-nmap -A -T5 -p22 -v3 ${mysubnet} > ${outfile}
+nmap -A -T5 -p22 -v3 "${mysubnet}" > "${outfile}"
 
 echo && echo "Found info for:"
-cat ${outfile} | grep -v 'host down' | grep '(' | grep 'report for'
+cat "${outfile}" | grep -v 'host down' | grep '(' | grep 'report for'

@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # wifi debug watch loop - tailor as needed
 
 source /usr/sbin/script_header_joetoo

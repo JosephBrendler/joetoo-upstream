@@ -1,6 +1,6 @@
 #!/bin/bash
-
-# ipset-url Joe Brendler 1 November 2015 (updated 10 April 2026)
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # look up ips for url and then find them in ipsets
 [ $# -eq 0 ] && echo "Enter a url to test" && exit -1

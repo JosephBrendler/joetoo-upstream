@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 script_header_installed_dir="/usr/sbin"
 #script_header_installed_dir=/home/joe/myUtilities/dev-util/script_header_joetoo

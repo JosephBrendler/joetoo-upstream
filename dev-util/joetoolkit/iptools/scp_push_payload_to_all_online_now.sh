@@ -1,4 +1,8 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# demonstrate use of scp to copy to all hosts known to the dns
 
 source /usr/sbin/script_header_joetoo
 

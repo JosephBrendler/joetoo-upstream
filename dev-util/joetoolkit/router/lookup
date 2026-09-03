@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 source /usr/sbin/script_header_joetoo
 source /usr/sbin/script_header_joetoo_router
@@ -58,6 +60,8 @@ parse_arg() {
       [aA]*) selector="ACCEPT" ;;
       [dD]*) selector="DROP" ;;
       *) j_msg -${err} -p "selector $_arg not implemented"; usage;;
+    esac
+  fi
   retrun $pa_ret
 }
 
@@ -103,4 +107,3 @@ j_msg -${notice} -p "Assigned ip_field_num: [ ${ip_field_num} ]"
 ingest_ip_array_from_logfile  || die "failed to ingest_array"
 identify_ip_hits || die "failed to identify_ip_hits"
 d_do 'j_msg -u -p -M $idx_magnifying_glass_left "dumping array"; dump_array' ${debug}
-

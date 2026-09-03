@@ -1,0 +1,28 @@
+#!/bin/bash
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# check_syntax - check bash syntax in all files found in specified directory tree
+
+# shellcheck source=/usr/sbin/script_header_joetoo
+# shellcheck source=/usr/sbin/script_header_joetoo_extended
+# shellcheck source=/usr/sbin/script_header_joetoo_unicode
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   # basename
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+#color_list=(
+#  Ron BRon Gon BGon Yon BYon Bon BBon Mon BMon Con BCon Won BWon RVon
+#  Oon BOon Lon BLon Ton BTon Aon BAon Non BNon Pon BPon Son BSon Fon BFon
+#)
+
+# extract the current list of colors defined in script_header_joetoo
+# identified by lines that begin with one or two alpha chars followed by "on="
+# strip the "=" and all after, to create the list
+readarray -t color_list < <(
+    grep -E '^[[:alpha:]]{1,2}on=' /usr/sbin/script_header_joetoo | cut -d'=' -f1
+)
+
+for x in "${color_list[@]}" ; do echo -e "${!x}Showing text in $x${Boff}"; done

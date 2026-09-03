@@ -1,6 +1,7 @@
 # /etc/cron.d/update_ipdeny
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 # based on update_ipdeny by BoneKracker 4 November 2011
-# Modified: Joe Brendler 21 Feb 2015
 #   Rev 17 Feb 2022 - adapted to refer to ipsets separately loaded for ALL countries
 
 # Twice per day, poll for update to ipdeny

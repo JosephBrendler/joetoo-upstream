@@ -1,6 +1,8 @@
 #!/bin/bash
-# tarup - (c) joe brendler 2025-2055
-# create a tar archive with version-upgraded filename
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# tarup - create a tar archive of a joetoo package's sources with version-upgraded filename
 #
 source /usr/sbin/script_header_joetoo
 
@@ -8,10 +10,11 @@ PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
 
 if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
 
-[ -z $verbosity ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+[ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
 
 user="joe"
 archived_tarballs_dir="/home/${user}/archived_tarballs"
+sources_repository="/home/${user}/joetoo-upstream"
 
 #-----[ variables ]--------------------------------------------------
 
@@ -21,122 +24,157 @@ latest_tarball_version=""          # latest version string (to be determined)
 new_tarball_version=""             # new version string (to be calculated)
 output_tarball_filename=""         # filename for the new version's tarball
 
-declare -a tarball_versions        # indexed array of version strings
+declare -a tarball_versions=()     # indexed array of version strings
 
 current_version_numbers=( 0 0 0 )  # array of digits constituting the parts (major minor patch) of current version number
 new_version_numbers=()             # array to hold new version's digits, when calculated
 
+declare -a VALID_SPDX=()           # array of all valid SPDX License Identifiers
+declare -a LICENSES_list=()        # array of license texts $PN should install
+
+STAGING_DIR=""                     # temp dir for building tarball structure
+
 #-----[ functions ]--------------------------------------------------
+
+cleanup-staging() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with args [$*]"
+    # cleanly remove STAGING_DIR recursively if it exists
+    if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
+        rm -rf -- "$STAGING_DIR"
+        STAGING_DIR=""
+    fi
+}
+
 usage() {
-    j_msg -${err} -p "${BGon}usage: ${PN} <SOURCE_DIR> [-major|-minor]${Boff}"
-    j_msg -${notice} -p "${BYon}Notes:${Boff}"
-    j_msg -${notice} -m "${BCon}(1)${Boff} ${BMon}SOURCE_DIR${Boff} must be a directory (containing a package's sources)"
-    j_msg -${notice} -m "${BCon}(2)${Boff} only one of the semantic versioning format numbers will be incremented"
-    j_msg -${notice} -m "    automatically (major.minor.patch)"
-    j_msg -${notice} -p "${BCon}(3)${BWon} upgrade type [-pa|ma|mi] is optional${Boff}"
-    j_msg -${notice} -m "  -pa[tch] optionally indicates a patch upgrade (${BWon}default${Boff})"
-    j_msg -${notice} -m "  -ma[jor] optionally indicates a major upgrade"
-    j_msg -${notice} -m "  -mi[nor] optionally indicates a minor upgrade"
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${err}" -p "${BGon}usage: ${PN} <SOURCE_DIR> [-major|-minor]${Boff}"
+    j_msg "-${notice}" -p "${BYon}Notes:${Boff}"
+    j_msg "-${notice}" -m "${BCon}(1)${Boff} ${BMon}SOURCE_DIR${Boff} must be a directory (containing a package's sources)"
+    j_msg "-${notice}" -m "${BCon}(2)${Boff} only one of the semantic versioning format numbers will be incremented"
+    j_msg "-${notice}" -m "    automatically (major.minor.patch)"
+    j_msg "-${notice}" -p "${BCon}(3)${BWon} upgrade type [-pa|ma|mi] is optional${Boff}"
+    j_msg "-${notice}" -m "  -pa[tch] optionally indicates a patch upgrade (${BWon}default${Boff})"
+    j_msg "-${notice}" -m "  -ma[jor] optionally indicates a major upgrade"
+    j_msg "-${notice}" -m "  -mi[nor] optionally indicates a minor upgrade"
     exit 1
 }
 
 load-tarball_versions() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # load the tarball_versions array
     # load array of version numbers for tarballs matching the name of SOURCE_DIR
     # use \0 as newline delimter for whitespace-safe handling of filenames
-    # subsititutions strip the package name and .tbz2 extension to leave just the version number
-    # sort -rV puts them in reverse version order , -z tells sort to use the \0 delimiter
+
+    # use an array to build up find_args while explaining how it will work
+    local -a find_args=( ./ -maxdepth 1 -type f ) # look at files in current dir only
+    find_args+=( -name "${SOURCE_DIR}-*.tbz2" )    # match name
+    find_args+=( -printf '%f\0' )   #.............# output just basename and null delimiter
+
+    # use an array to build up first sed pipe args while explaining how it will work
+    local -a sed1_args=( -z )   #.................# -z = use \0 line delimiter
+    sed1_args+=( "s|${SOURCE_DIR}-||g" ) #........# strip prefix
+
+    # use an array to build up second sed pipe args while explaining how it will work
+    local -a sed2_args=( -z )   #.................# -z = use \0 line delimiter
+    sed2_args+=( "s|\.tbz2$||g" )   #.............# strip suffix; note escaped . so it isnt any-char
+
+    # use an array to build up sort pipe args while explaining how it will work
+    local -a sort_args=( -z )   #.................# -z = use \0 line delimiter
+    sort_args+=( -r )   #.........................# -r = reverse order
+    sort_args+=( -V )   #.........................# -V = version-sort
+
     readarray -d $'\0' tarball_versions < <(
-        find ./ -name "${SOURCE_DIR}*.tbz2" -printf '%f\0' |
-        sed -z "s|${SOURCE_DIR}-||g" |
-        sed -z "s|.tbz2$||g" |
-        sort -rVz
+        find "${find_args[@]}" |
+            sed "${sed1_args[@]}" | sed "${sed2_args[@]}" | sort "${sort_args[@]}"
     )
-    return $?
 }
 
 get-current-version() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # put the latest version number string into latest_tarball_version variable
     local result=""
-    j_msg -${notice} -p "tarball_versions #: ${#tarball_versions[@]}"
+    j_msg "-${notice}" -p "tarball_versions #: ${#tarball_versions[@]}"
     # identify the latest version
     if [ ${#tarball_versions[@]} -eq 0 ] ; then
         # there are no tarballs matching SOURCE_DIR,
         # so current tarball version = 0.0.0 [i.e. none]
-        j_msg -${notice} -p "no tarballs matching SOURCE_DIR [${SOURCE_DIR}] found"
-        j_msg -${notice} -m " so current tarball version = 0.0.0 [i.e. none]"
+        j_msg "-${notice}" -p "no tarballs matching SOURCE_DIR [${SOURCE_DIR}] found"
+        j_msg "-${notice}" -m " so current tarball version = 0.0.0 [i.e. none]"
     else
         latest_tarball_version="${tarball_versions[0]}"
-        j_msg -${notice} -p "${Bon}current version${Boff}: [${latest_tarball_version}]"
+        j_msg "-${notice}" -p "${Bon}current version${Boff}: [${latest_tarball_version}]"
         # split version into ( major minor patch )
-        IFS='.' read -ra current_version_numbers <<< $latest_tarball_version
+        IFS='.' read -ra current_version_numbers <<< "$latest_tarball_version"
         result=$?
         # Reset IFS to its default value
         IFS=$' \t\n'
     fi
-    j_msg -${notice} -m "  current major: ${current_version_numbers[0]}"
-    j_msg -${notice} -m "  current minor: ${current_version_numbers[1]}"
-    j_msg -${notice} -m "  current patch: ${current_version_numbers[2]}"
+    j_msg "-${notice}" -m "  current major: ${current_version_numbers[0]}"
+    j_msg "-${notice}" -m "  current minor: ${current_version_numbers[1]}"
+    j_msg "-${notice}" -m "  current patch: ${current_version_numbers[2]}"
     return $result
 }
 
 get-archive-version() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # put the oldest (to-be-archived) version number string into to_be_archived_tarball_version variable
-    j_msg -${notice} -p "tarball_versions #: ${#tarball_versions[@]}"
+    j_msg "-${notice}" -p "tarball_versions #: ${#tarball_versions[@]}"
     # identify the latest version
     if [ ${#tarball_versions[@]} -eq 0 ] ; then
         # there are no tarballs matching SOURCE_DIR,
         # so archive tarball version = 0.0.0 [i.e. none]
-        j_msg -${notice} -p "no tarballs matching SOURCE_DIR [${SOURCE_DIR}] found"
-        j_msg -${notice} -m "  (so there is nothing to archive)"
+        j_msg "-${notice}" -p "no tarballs matching SOURCE_DIR [${SOURCE_DIR}] found"
+        j_msg "-${notice}" -m "  (so there is nothing to archive)"
         to_be_archived_tarball_version="none"
     else
         to_be_archived_tarball_version="${tarball_versions[ -1 ]}" || \
             die "failed to assign to_be_archived_tarball_version="
-        j_msg -${notice} -p "${Ron}archive version${Boff}: [${to_be_archived_tarball_version}]"
+        j_msg "-${notice}" -p "${Ron}archive version${Boff}: [${to_be_archived_tarball_version}]"
     fi
     return 0
 }
 
 calculate-new-version() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with args [$*]"
     # increment the version number appropriately
     local result=""
     local UPGR="$1"
     case "${UPGR}" in
         "major")
             # increment major number and reset minor patch number to 0
-            new_version_numbers[0]="$(( ${current_version_numbers[0]} + 1 ))"
+            new_version_numbers[0]="$(( current_version_numbers[0] + 1 ))"
             new_version_numbers[1]="0"
             new_version_numbers[2]="0"
             ;;
         "minor")
             # increment minor number and reset patch number to 0
             new_version_numbers[0]="${current_version_numbers[0]}"
-            new_version_numbers[1]="$(( ${current_version_numbers[1]} + 1 ))"
+            new_version_numbers[1]="$(( current_version_numbers[1] + 1 ))"
             new_version_numbers[2]="0"
             ;;
         "patch")
             # just increment patch number
             new_version_numbers[0]="${current_version_numbers[0]}"
             new_version_numbers[1]="${current_version_numbers[1]}"
-            new_version_numbers[2]="$(( ${current_version_numbers[2]} + 1 ))"
+            new_version_numbers[2]="$(( current_version_numbers[2] + 1 ))"
             ;;
-        *)  j_msg -${err} -p "invalid UPGRADE type [${UPGR}]" && exit ;;
+        *)  j_msg "-${err}" -p "invalid UPGRADE type [${UPGR}]" && exit ;;
     esac
-    j_msg -${notice} -m "  new major: ${new_version_numbers[0]}"
-    j_msg -${notice} -m "  new minor: ${new_version_numbers[1]}"
-    j_msg -${notice} -m "  new patch: ${new_version_numbers[2]}"
+    j_msg "-${notice}" -m "  new major: ${new_version_numbers[0]}"
+    j_msg "-${notice}" -m "  new minor: ${new_version_numbers[1]}"
+    j_msg "-${notice}" -m "  new patch: ${new_version_numbers[2]}"
     new_tarball_version="${new_version_numbers[0]}.${new_version_numbers[1]}.${new_version_numbers[2]}"
     result=$?
-    j_msg -${notice} -p "${Gon}new version${Boff}: ${new_tarball_version}"
+    j_msg "-${notice}" -p "${Gon}new version${Boff}: ${new_tarball_version}"
     return $result
 }
 
 archive-old-version() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # move the oldest version to the archived_tarballs_dir
     archive_tarball_filename="${SOURCE_DIR}-${to_be_archived_tarball_version}.tbz2"
     if [[ "${to_be_archived_tarball_version}" == "none" ]] ; then
-        j_msg -${notice} -p "no tarball to archive"
+        j_msg "-${notice}" -p "no tarball to archive"
     elif [ -f "${archive_tarball_filename}" ] ; then
         response=""
         msg="${BYon}About to run command:\n${Boff}"
@@ -146,48 +184,207 @@ archive-old-version() {
         case "$response" in
             [yY]*)
                  mv "${archive_tarball_filename}" "${archived_tarballs_dir%/}/" || die "failed to archive old tarball" ;;
-            [sS]*) j_msg -${notice} -p "${BMon}Skipping archive as instructed${Boff}" ;;
-            [nN]*) j_msg -${err} -p "Aborting as instructed" ; return 1;;
-            *) j_msg -${err} -p "Invalid response [$response]" ; return 1;;
+            [sS]*) j_msg "-${notice}" -p "${BMon}Skipping archive as instructed${Boff}" ;;
+            [nN]*) j_msg "-${err}" -p "Aborting as instructed" ; return 1;;
+            *) j_msg "-${err}" -p "Invalid response [$response]" ; return 1;;
         esac
     else
-        j_msg -${err} -p "Error: tarball [${archive_tarball_filename}] not found"
+        j_msg "-${err}" -p "Error: tarball [${archive_tarball_filename}] not found"
         return 1
     fi
     return 0
 }
 
-create-new-tarball() {
+get_valid_spdx() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # read into and array the official list of SPDX License Identifiers
+    local spdx_json=""
+    local spdx_version=""
+    j_msg "-${notice}" -p -n "retrieving current SPDX License List ..."
+    # use curl to read in the json file on the official site; flags --
+    #    -f = fail on server errors
+    #    -s = silent mode
+    #    -S = show errors when used with -s
+    #    -L = location (follow redirects)
+    spdx_json="$( curl -fsSL https://spdx.org/licenses/licenses.json )"
+    handle_result $? "" "" "${notice}" || die "failed to retrieve current SPDX License List"
+
+    j_msg "-${notice}" -p -n "Creating array of VALID_SPDX License IDs from list ..."
+    # use jq to read license IDs
+    readarray -t VALID_SPDX < <(
+        # use jq to parse the json data .licenses field
+        # select those marked as licenseId but not isDeprecated...
+        jq -r '.licenses[]
+        | select(.isDeprecatedLicenseId == false)
+        | .licenseId' <<< "$spdx_json"
+    )
+    handle_result $? "ingested: [${#VALID_SPDX[@]}]" "" "${notice}" || \
+        die "failed to create array of VALID_SPDX License IDs"
+
+    #  readarray -t VALID_SPDX < <( curl -fsSL https://spdx.org/licenses/licenses.json |
+    #     jq -r '.licenses[] | select(.isDeprecatedLicenseId == false) |
+    #     .licenseId' )  ==> echo "${#VALID_SPDX[@]}" ==> 695 // as of 20260831
+    # validate ingested array "sanity"
+    [ "${#VALID_SPDX[@]}" -gt 750 ] && \
+        die "retrieved SPDX License List appears invalid (too big) [${#VALID_SPDX[@]} identifiers]"
+    [ "${#VALID_SPDX[@]}" -lt 1 ] && \
+        die "retrieved SPDX License List appears incomplete [${#VALID_SPDX[@]} identifiers]"
+
+    j_msg "-${notice}" -p -n "Checking version of SPDX List ..."
+    spdx_version="$( jq -r '.licenseListVersion' <<< "$spdx_json" )"
+    handle_result $? "${spdx_version}" "" "${notice}" || die "failed to get SPDX List version"
+
+}
+
+is_valid_spdx() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with args [$*]"
+    # determine if a candidate licence identifier is a valid SPDX Licence Identifier
+    local candidate="$1"
+
+    # valid SPDX License Identifier can include only alphanumeric or . + - chars
+    [[ "$candidate" =~ ^[[:alnum:].+-]+$ ]] || return 1
+
+    # use case to see if candidate is in the current list
+    case " ${VALID_SPDX[*]} " in
+        *" ${candidate} "*) return 0 ;;  # valid
+    esac
+
+    return 1
+}
+
+get_LICENSES_list() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # parse the per-package file identifying licenses to install
+    j_msg "-${notice}" -p -n "Parsing LICENSES.package to id licenses to install ..."
+
+    local target="${SOURCE_DIR%/}/LICENSES.package"
+    # guard against empty or non-existent target
+    [ -f "$target" ] || die "required package licensing metadata file [$target] not found"
+    # ingest filtered lines from target
+    readarray -t LICENSES_list < <(
+        grep -v "^${W0}#" "$target" |   # strip comments possibly whitespace-prefixed
+        sed "/^${W0}$/d" |   #..........# strip empty and blank/whitespace lines
+        sort -u   #.....................# -u = unique to deduplicate
+    )
+    handle_result $? "ingested: [${#LICENSES_list[@]}]" "" "${notice}" || \
+        die "failed to parse LICENSES.package"
+    # validate the new array
+    [ "${#LICENSES_list[@]}" -gt 0 ] || die "no SPDX License Identifiers found in [$target]"
+}
+
+stage-new-tarball() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result
     output_tarball_filename="${SOURCE_DIR}-${new_tarball_version}.tbz2"
+    # create and populate a staging directory with sources
+    j_msg "-${notice}" -p -n "creating staging directory ..."
+    STAGING_DIR=$(mktemp -d) 2>/dev/null
+    handle_result $? "$STAGING_DIR" "failed" "${notice}" || die "failed to create staging directory"
+    j_msg "-${notice}" -p -n "copying sources to staging dir ..."
+    cp -a "${SOURCE_DIR}" "${STAGING_DIR%/}/" 2>/dev/null
+    handle_result $? "" "" "${notice}" || die "failed to cp -a ${SOURCE_DIR} ${STAGING_DIR%/}/"
+
+    # append basename of SOURCE_DIR to STAGING_DIR to derive STAGED_SOURCE_DIR
+    # use announce/act/report idiom just in case null input variable breaks the intent
+    j_msg "-${notice}" -p -n "deriving STAGED_SOURCE_DIR ..."
+    [ -n "$STAGING_DIR" ] && [ -n "$SOURCE_DIR" ] && \
+    STAGED_SOURCE_DIR="${STAGING_DIR%/}/${SOURCE_DIR##*/}"
+    handle_result $? "$STAGED_SOURCE_DIR" "" "${notice}" || die "failed to derive STAGED_SOURCE_DIR"
+
+    # add joetoo root license to staged sources dir
+    j_msg "-${notice}" -p -n "copying joetoo root LICENSE to STAGED_SOURCE_DIR ..."
+    cp -a "${sources_repository%/}/LICENSE" "${STAGED_SOURCE_DIR%/}/" 2>/dev/null
+    handle_result $? "" "" "${notice}" || \
+        die "failed to cp -a ${sources_repository%/}/LICENSE ${STAGED_SOURCE_DIR%/}/"
+    # make LICENSES subdir in staging dir
+    j_msg "-${notice}" -p -n "making LICENSES subdir in STAGED_SOURCE_DIR ..."
+    mkdir -p "${STAGED_SOURCE_DIR%/}/LICENSES" 2>/dev/null
+    handle_result $? "" "" "${notice}" || die "failed to mkdir -p ${STAGED_SOURCE_DIR%/}/LICENSES"
+
+    # build array of valid SPDX identifiers
+    j_msg "-${notice}" -p "getting array of VALID_SPDX ..."
+    get_valid_spdx; result=$?
+    j_msg "-${notice}" -p -n "done getting array of VALID_SPDX; result"
+    handle_result $result "" "" "${notice}" || die "failed to get_valid_spdx"
+
+    # build array of license identifiers to install
+    j_msg "-${notice}" -p "getting array of LICENSES to install ..."
+    get_LICENSES_list; result=$?
+    j_msg "-${notice}" -p -n "done getting array of LICENSES to install; result:"
+    handle_result $result "" "" "${notice}" || die "failed to get_LICENSES_list"
+
+    # add only the other applicable license texts to the staging dir
+    for each in "${LICENSES_list[@]}"; do
+        # check if it is valid and if so then copy it to staging dir subdir
+        j_msg "-${notice}" -p -n "checking if [${each}] is valid ..."
+        is_valid_spdx "$each"
+        handle_result $? "valid" "invalid" "${notice}" || \
+            die "invalid SPDX License Identifier [${each}]"
+        j_msg "-${notice}" -p -n "copying [${each}.txt] to STAGED_SOURCE_DIR LICENSES subdir ..."
+        cp -a "${sources_repository%/}/LICENSES/${each}.txt" "${STAGED_SOURCE_DIR%/}/LICENSES/" 2>/dev/null
+        handle_result $? "" "" "${notice}" || \
+            die "failed to cp -a ${sources_repository%/}/LICENSES/${each}.txt ${STAGED_SOURCE_DIR%/}/LICENSES"
+    done
+}
+
+create-new-tarball() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    output_tarball_filename="${SOURCE_DIR}-${new_tarball_version}.tbz2"
+    local result
+
+    # display staging dir content for review
+    tree -a "${STAGING_DIR%/}/"
 
     msg="${BYon}About to run command:\n${Boff}"
-    msg+="    ${BGon}tar ${taroptions} ${output_tarball_filename} ${SOURCE_DIR}${Boff}"
-    j_msg -${notice} -p "${msg}"
+    msg+="    ${BGon}tar ${taroptions} ${output_tarball_filename} -C ${STAGING_DIR} ${SOURCE_DIR##*/}"
+    j_msg "-${notice}" -p "${msg}"
     confirm_continue_or_exit
-    tar "${taroptions}" "${output_tarball_filename}" "${SOURCE_DIR}"
-    return $?
+    # use -C to got to staging dir first and ##*/ to tar the basename of source_dir found there
+    tar "${taroptions}" "${output_tarball_filename}" -C "${STAGING_DIR}" "${SOURCE_DIR##*/}"; result=$?
+    j_msg "-${notice}" -p -n "done building tarball; result:"
+    handle_result $result "" "" "${notice}" || die "failed to build tarball"
+
+    # clean up
+    j_msg "-${notice}" -p -n "cleaning up staging dir ..."
+    rm -rf "${STAGING_DIR}" 2>/dev/null
+    handle_result $? "" "" "${notice}" || die "rm -rf ${STAGING_DIR}"
+
 }
 
 #-----[ main script ]------------------------------------------------
 checknotroot
+# use script_header_joetoo _CLEANUP_HOOKS to enable die() to do this BEFORE issuing EXIT signal
+# so normal error handling runs cleanup-staging w/o trap
+register_cleanup_hook cleanup-staging ||
+    die "failed to register cleanup-staging hook"
+# ensure temp staging dir gets removed in unhandled errors leading to EXIT
+trap cleanup-staging EXIT
+
 separator "$(hostname)" "${PN}-${BUILD}"
 
-[ $# -eq 0 ] && { j_msg -${err} -p "SOURCE_DIR not specified" ; usage ; }
-[ $# -gt 2 ] && { j_msg -${err} -p "invalid arguments" ; usage ; }
-if [ ! -d "$1" ]; then j_msg -${err} -p "SOURCE_DIR: [$1] does not exist" ; usage; else SOURCE_DIR="$1"; fi
+# guard - stop if not running from a category-level subdir of sources_repository
+parent_dir=${PWD%/*}   # dirname of PWD
+if [[ "$parent_dir" != "$sources_repository" ]] ; then
+    j_msg "-${err}" -p "Must run from a category-level subdir of sources repository [$sources_repository]"
+    usage
+fi
+# other guards (need $1 = valid SOURCE_DIR)
+[ $# -eq 0 ] && { j_msg "-${err}" -p "SOURCE_DIR not specified" ; usage ; }
+[ $# -gt 2 ] && { j_msg "-${err}" -p "invalid arguments" ; usage ; }
+if [ ! -d "$1" ]; then j_msg "-${err}" -p "SOURCE_DIR: [$1] does not exist" ; usage; else SOURCE_DIR="$1"; fi
 
 if [ $# -eq 2 ] ; then
-    [[ "${2:0:1}" != "-" ]] && { j_msg -${err} -p "prefix option with \"-|\"" ; usage ; }
+    [[ "${2:0:1}" != "-" ]] && { j_msg "-${err}" -p "prefix option with \"-|\"" ; usage ; }
     _opt=${2#*-}  # stript the shortest match for '*-' from the left (-) - leaving opt w/o dash
     case "$_opt" in
         "ma"*) UPGRADE="major" ;;
         "mi"*) UPGRADE="minor" ;;
         "pa"*) UPGRADE="patch" ;;
-        *) j_msg -${err} -p "invalid option: [$2]"; usage ;;
+        *) j_msg "-${err}" -p "invalid option: [$2]"; usage ;;
     esac
-    j_msg -${notice} -p "initiating ${UPGRADE=} upgrade ..."
+    j_msg "-${notice}" -p "initiating ${UPGRADE} upgrade ..."
 else
-    UPGRADE="patch"; j_msg -${notice} -p "initiating patch upgrade (as default) ..."
+    UPGRADE="patch"; j_msg "-${notice}" -p "initiating patch upgrade (as default) ..."
 fi
 
 load-tarball_versions || die "failed to load-tarball_versions"
@@ -195,9 +392,16 @@ get-current-version || die "failed to get-current-version"
 get-archive-version || die "failed to get-archive-version"
 calculate-new-version "${UPGRADE}" || die "failed to calculate-new-version ${UPGRADE}"
 
+# stage new tarball before archiving the old one
+stage-new-tarball || die "failed to stage-new-tarball"
+
+#PS4='+ ${BASH_SOURCE##*/}:${LINENO}:${FUNCNAME[0]}(): '
+#set -x
+# archive old version only after staging of new one succeeds
 archive-old-version || die "failed to archive-old-version"
 
-
+# now create the new one
 create-new-tarball || die "failed to create-new-tarball"
 
-j_msg -${notice} -p "${BGon}Done${Boff}"
+j_msg "-${notice}" -p "${BGon}Done${Boff}"
+#set +x 

@@ -1,6 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 # display_foreign_connections
-# Joe Brendler   11 October 2014 (c) 2014-49878
 #
 
 source /usr/sbin/script_header_joetoo

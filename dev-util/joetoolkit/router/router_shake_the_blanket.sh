@@ -1,4 +1,9 @@
 #!/bin/bash
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# router_shake_the_blanket.sh - restart all critical router services
+
 source /usr/sbin/script_header_joetoo
 
 #-----[ variables ]-----------------------------------------------------------------

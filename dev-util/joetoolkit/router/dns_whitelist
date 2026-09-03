@@ -1,5 +1,6 @@
 # dns_whitelist
-# Joe Brendler - 7 Sep 14
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Facilitate scan of logs for suspicious dns querries by listing those NOT suspicious
 # Lines beginning with "#" and blank lines are ignored
 # commonly used web sites
@@ -36,8 +37,6 @@ ntp.colby.edu
 gnomon.cc.columbia.edu
 tick.gatech.edu
 # ignore scan hits that are not really dns querries
-62.168.192
-63.168.192
 192.168
 .in-addr.arpa
 mynetworksettings.com
