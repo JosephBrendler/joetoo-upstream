@@ -21,7 +21,9 @@ dev-sbc/                            dev-sbc/
 dev-util/                           dev-util/
 joetoo-base/                        joetoo-base/
 sys-kernel/                         sys-kernel/
-   ...
+   ...                                 ...
+```
+
 `Note: Some of these categories (e.g. dev-sbc) do not exist in upstream Gentoo profiles, and are only defined in profiles maintained in the joetoo repository
 
 A package in the `joetoo` repository may therefore install, configure, or otherwise consume software maintained here.
@@ -125,7 +127,7 @@ joetoo-upstream's human developer(s) may use AI tools for research, discussion, 
 
 All changes to this repository are made, reviewed, tested as appropriate, documented in the VCS workflow, and committed by a human developer. The human developer(s) retain responsibility for the design, implementation, correctness, licensing, and provenance of committed content.
 
-The AI policy of joetoo is distinct and separate from that of joetoo-upstream. See [joetoo AI Policy](https://github.com/JosephBrendler/joetoo/README.md)
+The AI policy of joetoo is distinct and separate from that of joetoo-upstream. See [joetoo AI Policy](https://github.com/JosephBrendler/joetoo/docs/AI_Policy.md)
 
 ## License
 
