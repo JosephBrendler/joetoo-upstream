@@ -1,6 +1,8 @@
 #!/bin/bash
-# tmux-workflow
-# hardened root-maintenance tmux workflow
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# tmux-workflow - hardened root-maintenance tmux workflow
 # normal quick ops: ssh user@<host> -> tmux (as user) -> sudo <root-task>
 # long root ops: ssh user@<host> -> sudo -i ->  tmux-workflow start -> <tasks> [detach]
 # exit immediately on any error; treat unset var as error; fail pipe if any part fails
@@ -34,7 +36,7 @@ SOCK_PATH="${SOCK_DIR}/${SESSION_BASENAME}_1.sock"  # this is a placeholder show
 #-----[ functions ]------------------------------------------------------------------
 
 usage() {
-    j_msg "-${debug}" -p "${BYon}(debug)${Boff} in ${FUNCNAME[0]} with arg(s) [$*]"
+    j_msg "-${debug}" -p "${BYon}(debug)${Boff} in ${FUNCNAME[0]}"
     local _u_msg=""
     j_msg "-${notice}" -p "${BRon}Usage${Boff}: ${PN} <ACTION>"
     j_msg "-${notice}" -m "${BYon}Actions${Boff} --"
@@ -64,7 +66,7 @@ usage() {
 }
 
 start_new_session() {
-    j_msg "-${debug}" -p "${BYon}(debug)${Boff} in ${FUNCNAME[0]} with arg(s) [$*]"
+    j_msg "-${debug}" -p "${BYon}(debug)${Boff} in ${FUNCNAME[0]}"
     # NOTE: SOCK_DIR must exist first; onus on caller to ensure
     local i=1
     local session sock
@@ -124,7 +126,7 @@ cmd_start() {
             LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" send-keys "j_msg -${notice} -p 'Successfully attached to session: $SESSION'" C-m
             LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" attach -t "$SESSION"
             # this wont run until user detaches from or kills from inside the session, so report detachment or failure to attach
-            _s_ressult=$?
+            _s_result=$?
             j_msg "-${notice}" -p -n "tmux result:"
             handle_result $_s_result "tmux exited status [$_s_result]" "Failed to attach to root tmux"
             ;;
@@ -145,14 +147,34 @@ cmd_attach() {
     SOCK_PATH="${SOCK_DIR}/${session}.sock"
 
     # "pre-position" an "attached" message in the session
-    j_msg "-${debug}" -p "${BYon}(debug)${Boff} about to send-keys to SOCK_PATH [$SOCK_PATH]"
-    LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" send-keys "j_msg -${notice} -p 'Attached successfully'" C-m
     j_msg "-${notice}" -p "Attaching to root tmux ..."
-    LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" attach -t "$session"
+    if ! LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" send-keys "j_msg -${notice} -p 'Attached successfully'" C-m ; then
+        j_msg "-${warn}" -p "Unable to pre-position attached message"
+    fi
+    # now actually attach to the session
+    if LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" attach -t "$session"; then _a_result=0; else _a_result=$?; fi
     # this wont run until user detaches from or kills from inside the session, so report detachment or failure to attach
-    _a_ressult=$?
     j_msg "-${notice}" -p -n "tmux result:"
-    handle_result $_a_result "tmux exited status [$_a_result]" "Failed to attach to root tmux"
+    # note: using if ! handle_result; then doesn't work becuase $? becomes 0
+    if handle_result $_a_result "tmux exited status [$_a_result]" "Failed to attach to root tmux" ; then
+        _hr_result=0    # nothing to do here
+    else
+        _hr_result=$?   # this preserves the bad status info
+        # check bit0 - did the surveiled action fail?
+        if [ $(( _hr_result & 1 )) -eq 1 ]; then
+            # before dying, check if bits other tha 0 are also set and report that
+            if [ $(( _hr_result & ~1 )) -ne 0 ] ; then
+                j_msg "-${err}" -p "handle_result/right_status failed with status [$_hr_result]"
+                command -v decode_right_status &>/dev/null && decode_right_status "$_hr_result"
+            fi
+            die "failed to attach to [$session]; tmux exited with status [$_a_result]"
+        else
+            # the only way to get here when bit 0 is not be set, so it must be one of the others - report that
+            j_msg "-${err}" -p "handle_result/right_status failed with status [$_hr_result]"
+            command -v decode_right_status &>/dev/null && decode_right_status "$_hr_result"
+            die "failure(s) as stated, after attaching to [$session]; status [$_hr_result]"
+        fi
+    fi
 }
 
 cmd_kill() {
@@ -186,7 +208,7 @@ cmd_kill() {
 }
 
 cmd_list() {
-    j_msg "-${debug}" -p "${BYon}(debug)${Boff} in ${FUNCNAME[0]} with arg(s) [$*]"
+    j_msg "-${debug}" -p "${BYon}(debug)${Boff} in ${FUNCNAME[0]}"
     j_msg "-${notice}" -p "listing root tmux sessions on all tmux-workflow servers"
     for s in "${SOCK_DIR%/}/"*.sock; do tmux -S "$s" ls 2>/dev/null; done
 }
@@ -242,7 +264,7 @@ cmd_cleanup() {
     # kill zombie tmux processes
     for pid in $(pgrep -f "tmux -S ${SOCK_DIR%/}/"); do
         # extract the socket path from the process command line
-        cmdline=$(tr '\0' ' ' < /proc/$pid/cmdline)
+        cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline")
         # extract socket pathname (which cant contain whitespace b/c I own it)
         # from the commandline whose format I dictated in the pgrep search)
         # format: cmdline="tmux -S /run/root-tmux/maint_3.sock new-session -d -s maint_3"

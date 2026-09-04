@@ -2,7 +2,9 @@
 # Copyright 2015-2026 Joseph Brendler
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# validate_scripts - check syntax or linting in all files found in specified directory tree
+#	sourcing_header_canary - use to validate validate_scripts itself
+#
+# originally a copy of validate_scripts - don't let that confuse you; THIS file is a canary
 
 # shellcheck source=/usr/sbin/script_header_joetoo
 # shellcheck source=/usr/sbin/script_header_joetoo_extended
@@ -45,16 +47,16 @@ COMPACT=$FALSE   #.....# set if flags dictate, to display without per-file headi
 FAILURES_ONLY=$FALSE   # set if flags dictate, to display output only from failed checks
 LINT=$FALSE   #........# set if flags dictate, to run shellcheck instead of just language-native syngax check
 #......................# Note: SHELLCHECK must be $TRUE (installed) to use LINT
+TIMERS=$TRUE   #.......# set if flags dictate, to time overall and per-file execution
 
 # initialize other variables expected in the joetoo ecosystem
 logFile="/var/log/${PN}.log"
 
 # set up varlist for show_config
 varlist="PN BUILD verbosity loglevel bool.DEBUG bool.QUIET bool.LOGGING"
-varlist+=" bool.INTERACTIVE"
 varlist+=" bool.UNICODE_CAPABLE bool.UNICODE_DISABLE"
 varlist+=" rlv.logFile rlv.target"
-varlist+=" bool.SHELLCHECK bool.COMPACT bool.FAILURES_ONLY bool.LINT"
+varlist+=" bool.TIMERS bool.SHELLCHECK bool.COMPACT bool.FAILURES_ONLY bool.LINT"
 
 #-----[ functions ]-------------------------------------------------------------------
 
@@ -70,6 +72,8 @@ usage() {
     msg="    ${BMon}-s|--syntax${Boff} ${Con}....: ${BCon}use language-native syntax checker w e.g. bash -n(default)${Boff}"
     j_msg "-${notice}" -mp "$msg"
     msg="    ${BMon}-l|--lint${Boff} ${Con}......: ${BCon}(for shell) use shellcheck instead${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${BMon}-t|--timers${Boff} ${Con}....: ${BCon}toggle overall & per-file timers (default: on)${Boff}"
     j_msg "-${notice}" -mp "$msg"
     msg="    ${BMon}-h|--help${Boff} ${Con}......: ${BCon}Display this text${Boff}"
     j_msg "-${notice}" -mp "$msg"
@@ -107,26 +111,25 @@ normalize_cmdline() {
         shift
 
         case "$arg" in
-            --)
-                # everything after -- is positional
+            --) # everything after -- is positional
                 remaining_args+=("$@")
                 break
                 ;;
-
+            # handle first all known -- prefixed flags
             --compact)   flags+=( c ) ;;
             --failures)  flags+=( f ) ;;
             --syntax)    flags+=( s ) ;;
             --lint)      flags+=( l ) ;;
+            --timers)    flags+=( t ) ;;
             --help)      flags+=( h ) ;;
 
-            --*)
+            --*) # reject any other -- prefixed flag as invalid
                 j_msg "-${err}" -p "invalid option [$arg]"
                 usage
                 exit 1
                 ;;
 
-            -?*)
-                # remove leading - and expand clustered short options
+            -?*) # remove leading - and examine char-by-char (possible clustered short options)
                 chars="${arg#-}"
 
                 while [ -n "$chars" ]; do
@@ -137,7 +140,7 @@ normalize_cmdline() {
                     ch="${ch,,}"
 
                     case "$ch" in
-                        c|f|s|l|h)   # all currently allowed flags
+                        c|f|s|l|t|h)   # all currently allowed flags
                             flags+=( "$ch" )
                             ;;
                         *)
@@ -149,8 +152,7 @@ normalize_cmdline() {
                 done
                 ;;
 
-            *)
-                # didn't fit any pattern above - save it; it is either target or an error
+            *) # didn't fit any pattern above - save for later; it is either target or an error
                 remaining_args+=( "$arg" )
                 ;;
         esac
@@ -160,17 +162,15 @@ normalize_cmdline() {
 parse_cmdline() {
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     local arg="" result=0
-
+    # examine each argument in the now-curated flags array and assign flags/values accordingly
     for arg in "${flags[@]}"; do
         case "$arg" in
             c) COMPACT=$TRUE ;;
             f) FAILURES_ONLY=$TRUE ;;
             s) LINT=$FALSE ;;
             l) LINT=$TRUE ;;
-            h)
-                usage
-                exit 0
-                ;;
+            t) TIMERS=$FALSE ;;
+            h) usage; exit 0 ;;
         esac
     done
 
@@ -221,7 +221,6 @@ choose_checker() {
     case "$base_executable" in
         # for valid shells, use the executable with its noexec flag (just parse to check syntax)
         sh|ash|bash|dash)
-            envvars=()
             if [ $LINT ]; then
                 executable="$(command -v shellcheck)"
                 arguments=( -x -s "$base_executable" ) # -x = follow sources; -s names the shell (e.g. bash)
@@ -233,7 +232,6 @@ choose_checker() {
             ;;
         # for busybox, use ash
         busybox)
-            envvars=()
             if [ $LINT ]; then
                 executable="$(command -v shellcheck)"
                 arguments=( -x -s "$base_executable" ) # -x = follow sources; -s names the shell (e.g. bash)
@@ -245,13 +243,11 @@ choose_checker() {
             ;;
         # for python, use -c w cmd_str assembled above (top of script)
         python3)
-            envvars=()
             executable=$(command -v "$base_executable")
             arguments=( -c "$cmd_str" )
             ;;
         # for perl, ignore other args that may have been on the shebang_line, and use perl -c to check syntax
         perl)
-            envvars=()
             executable=$(command -v "$base_executable")
             arguments=( -c )
             ;;
@@ -312,11 +308,10 @@ for x in "${target_array[@]}" ; do
         echo; echo -e "${title_clr}${x}${Boff}";
         echo -e "${line_clr}$(repeat '-' ${#x})${Boff}" ; }
 
+
     # add optional debug info
-    j_msg "-${debug}" -p "envvars[*]: ${envvars[*]}"
     j_msg "-${debug}" -p "executable: $executable"
     j_msg "-${debug}" -p "arguments[*]: ${arguments[*]}"
-    j_msg "-${debug}" -p "full command: [env ${envvars[*]} $executable ${arguments[*]} $x]"
 
     # build and use syntax checking command
     # note: shell and python checks put nothing on stdout (fd 1), errors to stderr (fd 2), but
@@ -324,18 +319,36 @@ for x in "${target_array[@]}" ; do
     # So - redirect stderr to stdout and filter the misplaced syntax OK with grep, and
     # use j_msg to communicate positive results as appropriate
     if [ $FAILURES_ONLY ]; then
-        # note envvars array has assignment string(s) - use env to have the assignments evaluated in the environment
-        # also, use bash PIPESTATUS array to get exit status of the command, not the grep
-        env "${envvars[@]}" "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
-        if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
-             j_msg "-${err}" -m "$x failed syntax check"
+        if [ $TIMERS ] ; then
+            j_msg "-${debug}" -p "full command: [time $executable ${arguments[*]} $x]"
+            # Note: use bash PIPESTATUS array to get exit status of the command, not the grep
+            time "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+            if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
+                 j_msg "-${err}" -m "$x failed syntax check"
+            fi
+        else
+            j_msg "-${debug}" -p "full command: [$executable ${arguments[*]} $x]"
+            # Note: use bash PIPESTATUS array to get exit status of the command, not the grep
+            "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+            if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
+                 j_msg "-${err}" -m "$x failed syntax check"
+            fi
         fi
     else
         # idx_* globals are generated by script_header_joetoo from the emoji registry
         # shellcheck disable=SC2154
-        j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."
-        env "${envvars[@]}" "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
-        result="${PIPESTATUS[0]}"
+        # set timer according to user specification tracked in $TIMERS
+        if [ $TIMERS ] ; then
+            j_msg "-${debug}" -p "full command: [time $executable ${arguments[*]} $x]"
+            j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."
+            time "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+            result="${PIPESTATUS[0]}"
+        else
+            j_msg "-${debug}" -p "full command: [time $executable ${arguments[*]} $x]"
+            j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."
+            "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+            result="${PIPESTATUS[0]}"
+        fi
         j_msg "-${notice}" -p -n "done; result:"
         handle_result "$result" "Ok $bin_check_mark_button" "errors $bin_cross_mark" "$notice"
     fi
