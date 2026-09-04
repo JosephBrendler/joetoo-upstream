@@ -5008,6 +5008,10 @@ progress_inline() # (POSIX) show progress of silent process on next line $1=step
 
 millis2time()   # (POSIX) convert integer ms to time format
 { mt_ret=0; _mt_ms=${1:-0}
+  # guard - input must be a non-negative integer
+  if ! isint "$_mt_ms" || [ "$_mt_ms" -lt 0 ]; then
+    j_msg "-${err}" -p "millis2time requires non-negative integer milliseconds"
+    unset -v _mt_ms; return 1; fi
   # use clock- (modulo- %) math to calculate the time-format fields that will be
   #   printed in a string with colon delimiter
   # math.division: dividend of x / divisor consists of quotient and remainder
