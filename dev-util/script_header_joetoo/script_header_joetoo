@@ -4693,6 +4693,62 @@ handle_result()  # (POSIX) if status $1 is 0, descriptive result $2 else $3; the
 # @note handle_result is a canonical UI primitive for the "report-result" step of the
 # @cont announce/act/report idiom.
 
+decode_right_status()   # (POSIX) decode right_status return bitmask
+{ drs_ret=0; _drs_status=${1:-0}
+  if ! isint "$_drs_status"; then
+    j_msg "-${err}" -p "decode_right_status requires integer <right_status_result>"
+    return 1; fi
+    # bit 0 - surveilled/reported action itself returned nonzero
+    if [ $(( _drs_status & (1 << 0) )) -ne 0 ]; then
+        j_msg "-${notice}" -m "right_status bit 0 set: reported operation returned nonzero"
+    fi
+    # bit 1 - status message construction failure
+    if [ $(( _drs_status & (1 << 1) )) -ne 0 ]; then
+        j_msg "-${err}" -m "right_status bit 1 set: status message was empty"
+    fi
+    # bit 2 - invalid/missing status argument supplied to right_status
+    if [ $(( _drs_status & (1 << 2) )) -ne 0 ]; then
+        j_msg "-${err}" -m "right_status bit 2 set: invalid status argument"
+    fi
+    # bit 3 - unicode status-symbol error
+    if [ $(( _drs_status & (1 << 3) )) -ne 0 ]; then
+        j_msg "-${err}" -m "right_status bit 3 set: rnicode status-symbol error"
+    fi
+    # bit 4 - logging destination failure
+    if [ $(( _drs_status & (1 << 4) )) -ne 0 ]; then
+        j_msg "-${err}" -m "right_status bit 4 set: failed to access logFile"
+    fi
+    # bit 5 - terminal width or cursor movement failure
+    if [ $(( _drs_status & (1 << 5) )) -ne 0 ]; then
+        j_msg "-${err}" -m "right_status bit 5 set: termwidth/CUF failure"
+    fi
+    # bit 6 - invalid severity argument
+    if [ $(( _drs_status & (1 << 6) )) -ne 0 ]; then
+        j_msg "-${err}" -m "right_status bit 6 set: invalid severity"
+    fi
+    # bit 7 - final j_msg failure
+    if [ $(( _drs_status & (1 << 7) )) -ne 0 ]; then
+        j_msg "-${err}" -m "right_status bit 7 set: final j_msg failed"
+    fi
+    drs_ret=$_drs_status
+    unset -v _drs_status
+    return "$drs_ret"
+}
+# @usage decode_right_status <right_status_result>
+# @args 1: integer bitmask returned by right_status or handle_result
+# @ret emits descriptions of set bits; returns input bitmask; 1 if arg is invalid
+# @deps isint j_msg
+# @vars err notice
+# @rule bit 0: reported/surveilled operation returned nonzero
+# @rule bit 1: right_status status-message construction failed
+# @rule bit 2: right_status received invalid/missing status argument
+# @rule bit 3: right_status unicode status-symbol error
+# @rule bit 4: right_status failed to access logFile
+# @rule bit 5: right_status termwidth/CUF failure
+# @rule bit 6: right_status received invalid severity
+# @rule bit 7: right_status final j_msg failed
+# @note multiple bits may be set; each set bit is reported independently
+
 # @note -----[ Section 6.c.: Unicode/Emoji UI/Layout tools ]------------------------------------------------------
 
 # is_utf8_terminal moved to top of header to run befure needed in default setting
@@ -4949,6 +5005,35 @@ progress_inline() # (POSIX) show progress of silent process on next line $1=step
 # @rule implements a heat-map color scale for the percentage text
 # @note uses "set --" to build complex printf commands without line continuations
 # @note automatically emits newline upon reaching 100% to preserve the bar
+
+millis2time()   # (POSIX) convert integer ms to time format
+{ mt_ret=0; _mt_ms=${1:-0}
+  # use clock- (modulo- %) math to calculate the time-format fields that will be
+  #   printed in a string with colon delimiter
+  # math.division: dividend of x / divisor consists of quotient and remainder
+  # quotient is the whole number of divisors in x
+  # remainder is a number less than divisor that remains once the quotient is subtracted from x
+  # in POSIX shell (( x / divisor )) produces the "quotient - whole part" of division
+  # in POSIX shell (( x % divisor )) produces the "remainder - fractional part" of division
+  _mt_mmm=$(( _mt_ms % 1000 )) || mt_ret=1  #..................# mmm part = remainder when rm whole sec
+  _mt_sec=$(( _mt_ms / 1000 )) || mt_ret=$(( mt_ret | 2 ))     # integer seconds in elapsed time
+  _mt_ss=$((  _mt_sec % 60  ))  || mt_ret=$(( mt_ret | 4 ))    # ss part = remainder when rm whole min
+  _mt_min=$(( _mt_sec / 60  ))  || mt_ret=$(( mt_ret | 8 ))    # integer minutes in elapsed time
+  _mt_mm=$((  _mt_min % 60  ))  || mt_ret=$(( mt_ret | 16 ))   # mm part = remainder when rm whole hrs
+  _mt_hrs=$(( _mt_min / 60  ))  || mt_ret=$(( mt_ret | 32 ))   # integer hours in elapsed time
+  _mt_hh=$((  _mt_hrs % 24  ))  || mt_ret=$(( mt_ret | 64 ))   # hh part = remainder when rm whole days
+  _mt_dd=$((  _mt_hrs / 24  ))  || mt_ret=$(( mt_ret | 128 ))  # dd = integer days in elapsed time
+  # return (emit) time-formatted string on stdout
+  printf "%02d:%02d:%02d:%02d:%03d\n" "$_mt_dd" "$_mt_hh" "$_mt_mm" "$_mt_ss" "$_mt_mmm"  || mt_ret=1
+  unset -v _mt_ms _mt_mmm _mt_ss _mt_sec _mt_mm _mt_min _mt_hrs _mt_hh _mt_dd
+  return $mt_ret
+}
+# @usage millis2time [MILLISECONDS]
+# @args $1 non-negative integer milliseconds; defaults to 0
+# @ret emits elapsed time as DD:HH:MM:SS:mmm; returns 0 on success
+# @rule hours, minutes, seconds, and milliseconds are modulo clock fields
+# @note days are unbounded; other fields are clock-modulo values;
+# @append output represents elapsed duration, not wall time
 
 sh_countdown() # (POSIX) count-down seconds (arg $1)
 { shc_ret=0; _shc_rem_time="${1:-30}"  # guard; default to 30 sec. if no arg given
