@@ -1,44 +1,60 @@
 #!/bin/bash
-# text2pdf - (c) joe brendler 2025-2055
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# text2pdf - create a pdf document by piping test through enscript and ps2pdf
 #
 source /usr/sbin/script_header_joetoo
+
+set -o pipefail
+
+#-----[ variables ]--------------------------------------------------
 
 PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
 
 if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
 
-[ -z $verbosity ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
 
-user="joe"
-
-#-----[ variables ]--------------------------------------------------
-
-old_dir=$(pwd)
+# prepare to collect status from each part of pipeline
+ens_ret=0
+ps2_ret=0
+pipe_ret=0
 
 #-----[ functions ]--------------------------------------------------
-usage() {  j_msg -${err} "${BRon}usage: ${BGon}${PN} <INPUT_TEXT_FILE>${Boff}"; exit 1 ; }
+usage() {  j_msg "-${err}" "${BRon}usage: ${BGon}${PN} <INPUT_TEXT_FILE>${Boff}"; exit 1 ; }
 
 convert_text_to_pdf() {
-    cat "${input_file}" | enscript -o - | ps2pdf - "${output_file}"
-    return $?
+#    cat "${input_file}" | enscript -o - | ps2pdf - "${output_file}"
+    enscript -o - "${input_file}" 2>/dev/null | ps2pdf - "${output_file}" 2>/dev/null
+    pipe_ret=$?
+    ens_ret="${PIPESTATUS[0]}"
+    ps2_ret="${PIPESTATUS[1]}"
+    return "$pipe_ret"
 }
 
 #-----[ main script ]------------------------------------------------
 
-[ $# -eq 0 ] && {  j_msg -${err} "input file not specified" ; usage ; }
-[ $# -gt 2 ] && {  j_msg -${err} "invalid arguments" ; usage ; }
+[ $# -eq 0 ] && {  j_msg "-${err}" "input file not specified" ; usage ; }
+[ $# -gt 2 ] && {  j_msg "-${err}" "invalid arguments" ; usage ; }
 input_file="$1"
+[ ! -f "$input_file" ] && { j_msg "-${err}" "input file [$input_file] not found" ; usage ; }
 output_file="${2:-${input_file}.pdf}"
 
 separator "$(hostname)" "${PN}-${BUILD}"
+# if output file exists, check before overwriting
+answer="y"
+if [ -f "$output_file" ] ; then
+    j_msg "-${warn}" -p -n ""
+    yn_prompt "${BYon}Output file [${BCon}$output_file${BYon}] exists, overwrite?${Boff}"
+fi
+[[ "${answer:0:1}" != [yY] ]] && { j_msg "-${err}" -p "Aborting, as requested"; exit 0 ; }
 
+j_msg "-${notice}" -p -n "${BYon}Converting [${BCon}${input_file}${BYon}] to pdf ...${Boff}"
 convert_text_to_pdf || die "failed to convert_text_to_pdf"
-j_msg -${notice} -M $idx_face_beam -p " (${BGon}success"'!'"${Boff})"
+handle_result "$pipe_ret" "success! $bin_face_beam" "exit status: enscript [$ens_ret]; ps2pdf [$ps2_ret]"
+#j_msg "-${notice}" -M "$idx_face_beam" -p " (${BGon}success"'!'"${Boff})"
 
-j_msg -${notice} -m -n "moving back to old_dir [$old_dir]"
-cd "$old_dir" || die "failed to cd to old_dir"
-right_status $TRUE ${notice}
-
-j_msg -${notice} -p "${BGon}Done${Boff}"
+j_msg "-${notice}" -p "${BGon}Done${Boff}"
 
 #debug_marker

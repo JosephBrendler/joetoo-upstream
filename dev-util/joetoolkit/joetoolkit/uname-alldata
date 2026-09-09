@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 optshort=()
 for x in s n r v m p i o a; do optshort+=($x); done
@@ -7,9 +9,9 @@ optlong=()
 for y in kernel-name nodename kernel-release kernel-version machine processor hardware-platform operating-system all; \
 do optlong+=($y); done
 
-echo ${#optshort[@]}: ${optshort[@]}
+echo "${#optshort[@]}: ${optshort[@]}"
 echo
-echo ${#optlong[@]}: ${optlong[@]}
+echo "${#optlong[@]}: ${optlong[@]}"
 echo
 for ((i=0; i<${#optshort[@]}; i++))
 do

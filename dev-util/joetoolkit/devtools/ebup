@@ -1,6 +1,8 @@
 #!/bin/bash
-# ebup - (c) joe brendler 2025-2055
-# create an ebuild with version-upgraded filename
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# ebup - create an ebuild with version-upgraded filename
 #
 
 source /usr/sbin/script_header_joetoo

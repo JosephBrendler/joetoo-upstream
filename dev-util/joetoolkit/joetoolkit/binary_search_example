@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # bs2 - implements simple binary search for target ($2) in list or inputfile ($1)
 source /usr/sbin/script_header_joetoo
 source /usr/sbin/script_header_joetoo_extended

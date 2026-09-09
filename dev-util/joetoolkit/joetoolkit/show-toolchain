@@ -1,5 +1,8 @@
 #!/bin/bash
-# show-toolchain   Joe Brendler 3 Octover 2023
+# Copyright 2023-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# show-toolchain
 #
 source /usr/sbin/script_header_joetoo
 

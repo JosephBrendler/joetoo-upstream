@@ -1,6 +1,14 @@
 #!/bin/bash
-# umerge.sh - unmerge packages easily
-# v0.0.2b by Zucca, from Finland posted 15 Dec 16 at https://forums.gentoo.org/viewtopic-t-724325-highlight-.html
+# Copyright 2009 Zucca
+# Copyright 2025-2026 Joseph Brendler
+#
+# unmerge.sh - interactively select packages to remove from the Portage world set
+#
+# Originally written by Zucca and published as "umerge.sh v0.0.2b" on the
+# Gentoo Forums in 2009. Modified by Joseph Brendler for joetoolkit.
+#
+# Original source:
+# https://forums.gentoo.org/viewtopic-t-724325-highlight-.html
 
 UNMERGELIST=$(mktemp -t "unmerge_list_XXXXX")
 

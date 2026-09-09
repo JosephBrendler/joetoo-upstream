@@ -1,5 +1,8 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
+
 # show-keypkg_status - FAST - ho header, no bells/whistles, yet nicely colored by eix itself
 #
 eix-update >/dev/null 2>&1

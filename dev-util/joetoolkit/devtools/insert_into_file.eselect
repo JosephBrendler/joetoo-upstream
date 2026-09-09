@@ -1,6 +1,10 @@
 # -*-eselect-*-  vim: ft=eselect
 # Copyright 2005-2023 Gentoo Authors
-# Distributed under the terms of the GNU GPL version 2 or later
+# Copyright 2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Derived from Gentoo-authored eselect software and modified by
+# Joseph Brendler to provide eselect functionality for this package.
 #
 DESCRIPTION="Manage the /etc/insert_into_file/insert_into_file.conf symlink"
 MAINTAINER="joe.brendler@gmail.com"

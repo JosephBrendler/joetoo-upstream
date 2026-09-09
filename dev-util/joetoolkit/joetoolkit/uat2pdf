@@ -1,6 +1,8 @@
 #!/bin/bash
-# uat2pdf - (c) joe brendler 2025-2055
-# convert text to pdf while preserving ansi color sequences and multi-byte unicode characters
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# uat2pdf - convert text to pdf while preserving ansi color sequences and multi-byte unicode characters
 #
 source /usr/sbin/script_header_joetoo
 
@@ -8,21 +10,25 @@ PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
 
 if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
 
-[ -z $verbosity ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
-
-user="joe"
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
 
 #-----[ variables ]--------------------------------------------------
 
-old_dir=$(pwd)
+tmp_html=""
+tmp_css=""
 
 #-----[ functions ]--------------------------------------------------
-usage() {  j_msg -${err} "${BRon}usage: ${BGon}${PN} <INPUT_TEXT_FILE>${Boff}"; exit 1 ; }
+
+usage() {  j_msg "-${err}" "${BRon}usage: ${BGon}${PN} <INPUT_TEXT_FILE>${Boff}"; exit 1 ; }
+
+cleanup_tmps() {
+    [ -n "$tmp_html" ] && [ -f "$tmp_html" ] && rm -f -- "$tmp_html"
+    [ -n "$tmp_css" ]  && [ -f "$tmp_css"  ] && rm -f -- "$tmp_css"
+}
 
 convert_ansi_to_html() {
     # --light-background --scheme solarized (use a light theme and matching colors)
     ansi2html --light-background --scheme solarized < "$input_file" > "$tmp_html"
-    return $?
 }
 
 convert_html_to_pdf() {
@@ -33,8 +39,11 @@ convert_html_to_pdf() {
 #  such as BEL, VT, SO/SI, or unicode zero-idth characters. These are harmless and will be silenced by the use
 #  of the -q option flag (remove -q for further debugging)
     # weasyprint (full CSS, best fidelity)
-    weasyprint -q --full-fonts --srgb "$tmp_html" "$output_file" --stylesheet "$tmp_css" 2>/dev/null
-    return $?
+    if [[ $DEBUG || "$verbosity" -ge 7 ]] ; then
+        weasyprint -q --full-fonts "$tmp_html" "$output_file" --stylesheet "$tmp_css"
+    else
+        weasyprint -q --full-fonts "$tmp_html" "$output_file" --stylesheet "$tmp_css" 2>/dev/null
+    fi
 }
 
 build_css() {
@@ -49,36 +58,64 @@ EOF
 }
 #-----[ main script ]------------------------------------------------
 
-[ $# -eq 0 ] && {  j_msg -${err} "input file not specified" ; usage ; }
-[ $# -gt 2 ] && {  j_msg -${err} "invalid arguments" ; usage ; }
+[ $# -eq 0 ] && {  j_msg "-${err}" "input file not specified" ; usage ; }
+[ $# -gt 2 ] && {  j_msg "-${err}" "invalid arguments" ; usage ; }
 input_file="$1"
-output_file="${2:-${input_file}.pdf}"
-tmp_html="$(mktemp --suffix=.html /tmp/${PN}.XXXXXX)"
-tmp_css="$(mktemp --suffix=.css  /tmp/${PN}.XXXXXX)"
+[ ! -f "$input_file" ] && { j_msg "-${err}" "input file [$input_file] not found" ; usage ; }
 
 separator "$(hostname)" "${PN}-${BUILD}"
 
-j_msg -${debug} -p "input_file: $input_file"
-j_msg -${debug} -p "output_file: $output_file"
-j_msg -${debug} -p "tmp_html: $tmp_html"
-j_msg -${debug} -p "tmp_css: $tmp_css"
+output_file="${2:-${input_file}.pdf}"
+# if output file exists, check before overwriting
+answer="y"
+if [ -f "$output_file" ] ; then
+    j_msg "-${warn}" -p -n ""
+    yn_prompt "${BYon}Output file [${BCon}$output_file${BYon}] exists, overwrite?${Boff}"
+fi
+[[ "${answer:0:1}" != [yY] ]] && { j_msg "-${err}" -p "Aborting, as requested"; exit 0 ; }
 
-j_msg -${notice} -M $idx_screwdriver -p -n "Constructing css file to control conversion"
+# use script_header_joetoo's cleanup_hooks registry so die and leave will automatically remove temp files
+register_cleanup_hook cleanup_tmps || die "failed to register cleanup_tmps"
+
+tmp_html="$(mktemp --suffix=.html /tmp/${PN}.XXXXXX)" || die "failed to create temporary html file"
+tmp_css="$(mktemp --suffix=.css  /tmp/${PN}.XXXXXX)" || die "failed to create temporary css file"
+
+j_msg "-${debug}" -p "input_file: $input_file"
+j_msg "-${debug}" -p "output_file: $output_file"
+j_msg "-${debug}" -p "tmp_html: $tmp_html"
+j_msg "-${debug}" -p "tmp_css: $tmp_css"
+
+j_msg "-${notice}" -M "$idx_screwdriver" -p -n "Constructing css file to control conversion"
 # there shouldn't be stderr ouput but redirect for full control (remove redirect for debugging)
-build_css 2>/dev/null
-handle_result $? '' '' $notice || die "failed to build_css"
+if [[ $DEBUG || "$verbosity" -ge 7 ]] ; then
+    build_css
+else
+    build_css 2>/dev/null
+fi
+handle_result $? '' '' "$notice" || die "failed to build_css"
 
-j_msg -${notice} -M $idx_hammer -p -n "Converting input via ansi2html"
+j_msg "-${notice}" -M "$idx_hammer" -p -n "Converting input via ansi2html"
 # there shouldn't be stderr ouput but redirect for full control (remove redirect for debugging)
-convert_ansi_to_html 2>/dev/null
-handle_result $? '' '' $notice || die "failed to convert_ansi_to_html"
+if [[ $DEBUG || "$verbosity" -ge 7 ]] ; then
+    convert_ansi_to_html
+else
+    convert_ansi_to_html 2>/dev/null
+fi
+handle_result $? '' '' "$notice" || die "failed to convert_ansi_to_html"
 
-j_msg -${notice} -M $idx_wrench -p -n "Further converting html to pdf via weasyprint"
+j_msg "-${notice}" -M "$idx_wrench" -p -n "Further converting html to pdf via weasyprint"
 # there shouldn't be stderr ouput but redirect for full control (remove redirect for debugging)
-convert_html_to_pdf 2>/dev/null
-handle_result $? '' '' $notice || die "failed to convert_ansi_to_html"
+if [[ $DEBUG || "$verbosity" -ge 7 ]] ; then
+    convert_html_to_pdf
+else
+    convert_html_to_pdf 2>/dev/null
+fi
+handle_result $? '' '' "$notice" || die "failed to convert_html_to_pdf"
 
-j_msg -${notice} -M $idx_trophy -p "${BGon}Done${Boff}"
+# run the cleanup
+cleanup_tmps || die "failed to clean temporary files"
+
+j_msg "-${notice}" -M "$idx_trophy" -p "${BGon}Done${Boff}"
 
 #debug_marker
 

@@ -1,6 +1,8 @@
 #!/bin/bash
 # Copyright 2013-2026 Joseph Brendler
 # SPDX-License-Identifier: GPL-3.0-or-later
+
+# check_resilient_services - check and restart services if needed
 #
 # source headers
 #script_header_installed_dir=./         ## only when testing, pre-ebuild

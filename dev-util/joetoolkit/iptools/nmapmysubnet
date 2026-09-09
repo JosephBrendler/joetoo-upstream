@@ -14,12 +14,18 @@ outfile="/home/${user}/nmap_report"
 ABnet="192.168"
 #ABnet="10.0"
 
+# assign Cnet and MASKbits; defaule to local 192.168.62.0/24
 Cnet="${1:-62}"
 MASKbits="${2:-24}"
 
 mysubnet="${ABnet}.${Cnet}.0/${MASKbits}"
 rm -f "${outfile}"
 echo "Scanning subnet [ ${mysubnet} ]..."
+# configure nmap scan
+#    -A (agressive) enables OS-,  version- detection, script scanning, and traceroute
+#    -T (Timing template) 5 = Insane
+#    -p (port) 22 = ssh
+#    -v (verbosity)
 nmap -A -T5 -p22 -v3 "${mysubnet}" > "${outfile}"
 
 echo && echo "Found info for:"

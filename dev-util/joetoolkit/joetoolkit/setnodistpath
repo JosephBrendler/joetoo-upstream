@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
 # setnodistpath - modify PATH to eliminate distcc masquerades
 #
 # NOTE:  must *source* this script to make the export assignment active in calling shell

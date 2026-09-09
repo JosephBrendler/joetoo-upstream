@@ -1,5 +1,6 @@
 #!/bin/bash
-#
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 CSI="\033["    # control sequence initiator == hex "\x1b["
 BOLD="1"       # bold on

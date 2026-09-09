@@ -1,10 +1,14 @@
 #!/bin/bash
-for line in $(grep -l /mnt/gentoo/ /proc/*/mountinfo) ; 
-do 
-  process=$(echo $line | cut -d'/' -f3) ; 
-  echo "identifying $process ..." ; 
-  answer=$(ps -aef | grep "\ ${process}\ ") ; 
-  procid=${answer##*/} ;  
-  echo "  restarting ${procid} ..." ; 
-  systemctl restart ${procid} ; 
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+#
+for line in $(grep -l /mnt/gentoo/ /proc/*/mountinfo) ; do
+  process=$(echo $line | cut -d'/' -f3) ;
+  echo "identifying $process ..." ;
+  answer=$(ps -aef | grep "\ ${process}\ ") ;
+  procid=${answer##*/} ;
+  echo "  restarting ${procid} ..." ;
+  # only works for systemd systems
+  systemctl restart ${procid} ;
 done
