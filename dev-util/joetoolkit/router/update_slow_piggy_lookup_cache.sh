@@ -118,6 +118,17 @@ build_slow_piggy_list() {
         github.githubassets.com
         raw.github.com
     )
+    # append google sites
+    slow_piggies+=(
+        google.com
+        calendar.google.com
+        mail.google.com
+        gemini.google.com
+    )
+    # append chatGPT
+    slow_piggies+=(
+        chatgpt.com
+    )
     # append static gentoo sites
     slow_piggies+=(
         gentoo.org

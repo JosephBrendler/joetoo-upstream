@@ -55,22 +55,38 @@ gcsm() # (BASH) submit signed commit (follow with gpom to push)
 # @cont to that and --no-gpg-sign will turn it off
 
 pcsm() # (BASH) submit signed commit (follow with gpom to push)
-{   local _gcsm_msg="${1:-}"
+{   local _pcsm_repo="${HOME}/joetoo"
+    [[ "$PWD" != "${_pcsm_repo}" ]] && return 1  # guard - pkgdev commit --all stages changes in $PWD only so go to repo top
+    local _pcsm_msg="${1:-}"
+    local _pcsm_REPOS_CONFIG
+    local _pcsm_repoconf=('[gentoo]' 'location = /var/db/repos/gentoo')  # replicate gentoo entry in repos.conf
+    _pcsm_repoconf+=('[joetoo]' "location = ${_pcsm_repo}")   #.........# **replace** joetoo entry in repos.conf
+    # build content for egencache's --repositories-configuration= option
+    _pcsm_REPOS_CONFIG="$(printf '%s\n%s\n\n%s\n%s\n' "${_pcsm_repoconf[@]}")"
+    # run egencache with this config pointed at development repo not the one in /var/db/repos/joetoo
+    egencache --repositories-configuration="${_pcsm_REPOS_CONFIG}" --repo=joetoo --update || return 2
     echo 'test' > ~/cachetest  #.............................# create a dummy file to sign
     gpg --clearsign ~/cachetest > /dev/null 2>&1 || true  #..# sign file w pinentry, cache the key, ignore pcscd error msg
-    [ -f ~/cachetest.asc ] || return 1   #...................# verify the file signature (.asc) was created
+    [ -f ~/cachetest.asc ] || return 4   #...................# verify the file signature (.asc) was created
     rm ~/cachetest.asc  #....................................# remove the signature to reset
-    pkgdev commit --scan --signoff --gpg-sign -m "${_gcsm_msg}"  # signoff and sign the commit
+    # stage changes, signoff and commit with signature
+    if ! pkgdev commit --all --scan --signoff --gpg-sign -m "${_pcsm_msg}" ; then return 8; fi
 }
 # @usage pcsm <message>
+# @ret 0 on success; non-zero on failure
+# @cont bit 0 (1) - run from wrong directory (pkgdev --all stages changes in $PWD)
+# @cont bit 1 (2) - egencache failed
+# @cont bit 2 (4) - gpg --clearsign did not create cachetest.asc
+# @cont bit 3 (8) - pkgdev commit failed
 # @note note for pkgdev commit options --
-# @rule pcsm is prefered for eclass maintenance due tobetter metadata manifest mgmt via pkgdev commit
+# @rule pcsm is prefered for eclass maintenance due to egencache/pkgdev commit (incl better metadata mgmt)
+# @cont  -a | --all stage all changed/new/removed files
 # @cont  -s | --scan for QA
 # @warn  (*** caveat: for pkgdev commit, -s is NOT --signoff ***)
 # @cont  --signoff = add Signed-off-by line IAW GLEP-76 (DCO)
 # @cont  --gpg-sign (or --no-gpg-sign) passes --gpg-sign to git --commit
 # @cont  (there is no capital -S for pkgdev)
-# @note reference: https://pkgcore.github.io/pkgdev/man/pkgdev.html#id4
+# @note reference: https://pkgcore.github.io/pkgdev/man/pkgdev.html#id4 and man egencache
 # @note if a repo's ./.git/config or the users /home/<user>/.gitconfig contains "gpgsign = true" in a [commit]
 # @cont block, and "signingkey = <gpg-key-id>" in a [user] block, then --gpg-sign will default
 # @cont to that and --no-gpg-sign will turn it off
@@ -106,11 +122,11 @@ alias dist_path='export PATH=/usr/lib/distcc/bin:${PATH}:/home/joe/script'
 alias nodist_path='source /usr/sbin/setnodistpath'
 
 which()         # return full path of executable "$1"
-{ (alias; declare -f) | /usr/bin/which --tty-only --read-alias --read-functions --show-tilde --show-dot $@ ; }
+{ (alias; declare -f) | /usr/bin/which --tty-only --read-alias --read-functions --show-tilde --show-dot "$@" ; }
 export -f which
 
 mequery_b()     # identify the package that installed file $1
-{ (alias; declare -f) | grep -l -r -e $(echo "bin/"$(basename $(which ${1?} ))) /var/db/pkg/ --include=CONTENTS | awk -F'/' '{print $5"/"$6}' ; }
+{ (alias; declare -f) | grep -l -r -e "$(echo "bin/$(basename $(which ${1?} ))")" /var/db/pkg/ --include=CONTENTS | awk -F'/' '{print $5"/"$6}' ; }
 
 
 #-----[ PORTDIR, PKGDIR, DISTDIR ]-----------------------------------------------------
