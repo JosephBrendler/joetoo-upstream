@@ -1,7 +1,8 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# distcc-estimator  - joe brendler nov 2025 (c) 2025-7789
-#   20260408 - refactored from collect_distcc_hosts_support_data_sysbench
+# distcc-estimator - refactored from collect_distcc_hosts_support_data_sysbench
 #
 # create a smartly rank-ordered draft ${hosts_file} file AND a recommended MAKEOPTS=
 #   assignment for the local host (distcc client) /etc/portage/make.conf

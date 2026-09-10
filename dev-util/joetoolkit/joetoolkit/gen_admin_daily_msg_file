@@ -1,13 +1,13 @@
 #!/bin/bash
+# John Brendler, 2008
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# gen_admin_daily_msg_file
+# gen_admin_daily_msg_file - perform routine system security and stability tasks; generate concise report
 #
-# Joe Brendler
-# 17 March 2009
-#
-# Purpose: perform routine system security and stability tasks
-# and provide the system administrator a concise report.
-# Large portions borrowed from John Brendler's admin_daily Rev. 22 January 2008
+# Derived from demonstration "admin_daily" authored by John Brendler 22 January 2008
+
+# Adapted/maintained by Joseph Brendler since 2009
 
 source /usr/sbin/script_header_joetoo
 

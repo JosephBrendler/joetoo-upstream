@@ -1,15 +1,16 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# clear_gnupg_locks.sh - clear/reset locks and processes for gnupg
+
 # shellcheck source=/usr/sbin/script_header_joetoo
 source /usr/sbin/script_header_joetoo
 
 checkroot
 
 PN=${0##*/}
-if [ -f /etc/joetoolkit/BUILD ]; then
-    . /etc/joetoolkit/BUILD
-else
-    BUILD="0.0.0"
-fi
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.0"; fi
 
 #-----[ variables ]-------------------------------------------------------------
 signing_keyring_dir="/root/.gnupg"
@@ -195,6 +196,7 @@ for path in "${sandbox_paths[@]}"; do
     esac
 done
 
+# to-do determine if this is redundant to the above
 # also clean known fallback locations in case an older machine's
 # SANDBOX_WRITE does not yet contain the current complete set
 for keyring_dir in /run/user/0/gnupg /run/user/0-runtime/gnupg /dev/shm/user/0-runtime/gnupg; do

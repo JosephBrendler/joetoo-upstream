@@ -1,5 +1,9 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 source /usr/sbin/script_header_joetoo
+
 checkroot
 distcc_log_dir="/var/log/distcc"
 distcc_log_file="distccd.log"
