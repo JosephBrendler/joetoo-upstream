@@ -1,23 +1,347 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# get-drivers - updated version of get-drivers using jq and associative array to also collect "what is it for?"
+
 source /usr/sbin/script_header_joetoo
+
+# ensure the lshw | jq pipeline results in non-zero exit status when doing readarray for lshw_driver_records
+set -o pipefail
+
+#-----[ variables ]-------------------------------------------------------------------------------
 PN=${0##*/}
 
-#BUILD="0.0"
 if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
 
-driverlist=()
-combinedlist=()
+declare -A driver_map   #........# each stored value is an accumulated list of devices, keyed to driver used
+declare -a unique_drivers=()   #.# an indexed array of driver names
+declare -a lshw_driver_records   # jq-selected output from lshw -json
+declare -A seen_pairs=()   #.....# track driver-hw paring for deduplication
+
+# set up a pattern match for pci address (e.g. 00:1f.4 --> [optional4-hex:]2-hex:2-hex.hex space)
+pci_addr_pattern='^([[:xdigit:]]{4}:)?[[:xdigit:]]{2}:[[:xdigit:]]{2}\.[0-7][[:space:]]'
+lspci_subsystem_pattern="^${W0}Subsystem:${W1}"
+lspci_driver_pattern="^${W0}Kernel${W1}driver${W1}in${W1}use:${W1}(.+)"
+lspci_modules_pattern="^${W0}Kernel${W1}modules:${W1}"
+lspci_class_pattern="${P1}${W1}\[([[:xdigit:]]{4})\]:${W1}"   # [4-hex]:
+
+# set up pattern matches for lsusb output
+# note [^,/] is a character class of a neither comma nor /; + means one-or-more ; () is a "capture group"
+lsusb_driver_pattern="Class=([^,]+),${W1}Driver=([^,/]+)"
+lsusb_id_pattern="^${W0}ID${W1}[[:xdigit:]]{4}:[[:xdigit:]]{4}${W1}"
+
+# set up as needed for lshw -json data selection with jq
+
+# define lspci and lshw commands
+lspci_cmd=(lspci -D -n -n -k)   # -Dnnk - D: show domain number; nn: show both text and numeric; k: show kernel drivers
+lsusb_cmd=(lsusb -tv)   #.......# -tv tree verbose (shows Driver= on Bus/Port lines; shows device info on ID lines)
+lshw_cmd=(lshw -json -numeric)  # -json enables use of jq; -numeric enumerates same-type device nodes
+
+# define offset for info displayed right of progress bar
+offset=60   # determined empirically  Working: [##############################] 100% (63/63) => 55
+
+# enable silent output default
+target_output_path="/dev/null"
+# verbose option uses stdout
+[[ $DEBUG || $verbosity -ge 7 ]] && target_output_path="/dev/stdout"
+#-----[ functions ]---------------------------------------------------------------------------------
+
+add_driver_device() {
+    local driver=$1 device=$2
+    # use script_header_joetoo definition of the Unit Separator (never appears in printed text)
+    local pair="${1}${US}${2}"
+
+    # ${array[key]+word} expands to "word" if that element is set,
+    # even if its value is empty; otherwise it expands to nothing
+    # thus,  "present" is arbitrary literal text, not a keyword
+    # [[ ... ]] tests whether the resulting string is nonempty
+    # Thus: return successfully if we already recorded this pair
+    # Note: +present = "present" if set, including empty
+    #      :+present = "present" only if set AND nonempty
+    [[ ${seen_pairs[$pair]+present} ]] && return 0
+    # it wasn't previously set, so set it now (seen for first time)
+    seen_pairs["$pair"]=1
+    # if already tracking mapped hardware, append new; else assign first
+    if [[ -n ${driver_map[$driver]} ]]; then
+        driver_map["$driver"]+=" / $device"
+    else
+        driver_map["$driver"]=$device
+        unique_drivers+=("$driver")
+    fi
+}
+
+#-----[ main script ]-------------------------------------------------------------------------------
 
 separator "$(hostname)" "${PN}-${BUILD}"
-j_msg -${notice} -p "Finding drivers identified by lspci ...\n"
-for x in $( lspci -k | grep -i kernel | sort -u | awk -F': ' '{ print $2 }' ); do driverlist+=($x); done
 
-j_msg -${notice} -p "Finding drivers identified by lshw ...\n"
-for x in $( lshw | grep -i driver | awk -F'=' '{ print $2 }' | sed 's/latency//' | sort -u ); do driverlist+=($x); done
+j_msg "-${debug}" -p "DEBUG: $(status_color $DEBUG)$(TrueFalse $DEBUG)${Boff}"
+j_msg "-${debug}" -p "verbosity: $verbosity"
+j_msg "-${debug}" -p "target_output_path: $target_output_path"
 
-j_msg -${notice} -p "Here are the sorted combined results ...\n"
-for y in $( for x in "${driverlist[@]}"; do echo "$x"; done | sort -u ); do combinedlist+=($y); done
+# ingest from lspci by examining one block at a time
+current_device=""
 
-echo
-for (( i=0; i<=${#combinedlist[@]}; i++ )); do echo -e "\t$i: ${combinedlist[i]}"; done
-echo
+# iterate through lines of lspci -k
+# (re)establish output format for time command
+#TIMEFORMAT="${BTon}lspci elapsed: ${BMon}%3R${BTon} seconds${Boff}"
+#TIMEFORMAT=$(j_msg -u -M $idx_sparkles "${BAon}lspci elapsed: ${BLon}%3R seconds${Boff}")
+TIMEFORMAT=$(echo -n " "; u_echo $uT_watch; j_msg -u -m "${BAon}lspci elapsed: ${BLon}%3R seconds${Boff}")
+time {
+j_msg "-${notice}" -p "Finding drivers identified by lspci; please wait ..."
+# prepare to use progress bar
+lines=$("${lspci_cmd[@]}" | wc -l)
+line_num=0
+[ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && HCU   # hide cursor while using progress bar
+while IFS= read -r line; do
+    [ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && {
+        # update the progress bar
+        progress_inline "$((line_num++))" "$lines"
+        # prep to show some extra info to the right (save pos; return left; adv to offset)
+        SCP; printf '\r'; CUF $offset
+        # print a sample of what line is being considered
+        printf '%s' "${line:0:10}"
+        # clear the rest of the line and return to saved pos
+        EL; RCP ;
+    }
+    # remove trailing carriage returns
+    line=$(echo "$line" | tr -d '\r')
+    j_msg "-${debug}" -p "line: [$line]"
+    # if the line starts with a PCI address (e.g., 00:1f.4), grab the device description
+    # do not quote the target pattern, or bash will treat it as literal text rather than ERE
+    if [[ "$line" =~ ${pci_addr_pattern} ]]; then
+    # (re)initialize driver-collector
+        driver=""
+        # structure -> domain:bus:dev.fn Class description [class-code]: device info [vendor:device] ...
+        # strip the leading PCI address prefix (which includes a space) to isolate the device description
+        # also strip the class descr [class-code]: to shorted device info
+        current_device=$(echo "$line" | sed -E "s|${pci_addr_pattern}${lspci_class_pattern}||")
+        j_msg "-${debug}" -p "current_device: [$current_device]"
+#    # if the line is subsystem: use that for current device instead; use xargs to trim
+#    elif [[ "$line" =~ ${lspci_subsystem_pattern} ]]; then
+#        current_device=$( echo "$line" | sed "s|${lspci_subsystem_pattern}||" | xargs )
+    # if the line shows driver, map to description; use ^^ force caps to be case-insensitive
+    elif [[ "$line" =~ ${lspci_driver_pattern} ]]; then
+        # note: xargs w/o a cmd defaults to echo, which trims whitespace
+        driver=$(echo "$line" | awk -F': ' '{print $2}' | xargs)
+        j_msg "-${debug}" -p "driver: [$driver]"
+        # check what has been found - if no driver, nothing to do
+        if [ -n "$driver" ]; then
+            # there should always be a device description - so handle error if not
+            if [ -n "$current_device" ]; then
+                add_driver_device "$driver" "$current_device"
+            else
+                die "current_device [$current_device] should not be empty"
+            fi
+        fi
+    # if the line shows modules, map them to description; use ^^ force caps to be case-insensitive
+    elif [[ "$line" =~ ${lspci_modules_pattern} ]]; then
+        # note: xargs w/o a cmd defaults to echo, which trims whitespace; sed removes comma
+        # (intentionally word-split at the space separating modules)
+        modules=( $(echo "$line" | sed "s|${lspci_modules_pattern}||" | sed 's|,||' | xargs) )
+        for module in "${modules[@]}"; do
+            driver="$module"
+            j_msg "-${debug}" -p "driver: [$driver]"
+            # check what has been found - if no driver, nothing to do
+            if [ -n "$driver" ]; then
+                # there should always be a device description - so handle error if not
+                if [ -n "$current_device" ]; then
+                    add_driver_device "$driver" "$current_device"
+                else
+                    die "current_device [$current_device] should not be empty"
+                fi
+            fi
+        done
+    else
+        j_msg "-${debug}" -p "line matched neither pci_addr_pattern nor lspci_driver_pattern"
+        j_msg "-${debug}" -p "pci_addr_pattern: [$pci_addr_pattern]"
+        j_msg "-${debug}" -p "lspci_driver_pattern: [$lspci_driver_pattern]"
+    fi
+done < <("${lspci_cmd[@]}" 2>&1)
+result=$?
+[ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && {
+    progress_inline "$lines" "$lines"   # finish progress bar at 100%
+    # go up one line; clean up right of progress bar
+    CUU 1; printf '\r'; CUF $offset; EL ;
+    SCU   # restore visible cursor
+    printf '\n'  # close out progress bar and go to next line
+}
+j_msg "-${notice}" -p -n "Done processing lspci; result:"
+handle_result $result "ingested [${#driver_map[@]}]" "" "$notice"
+}   # time
+
+# iterate through lines of lsusb -tv
+# (re)establish output format for time command
+#TIMEFORMAT="${BTon}lsusb elapsed: ${BMon}%3R${BTon} seconds${Boff}"
+#TIMEFORMAT=$(j_msg -u -M $idx_sparkles "${BAon}lsusb elapsed: ${BLon}%3R seconds${Boff}")
+TIMEFORMAT=$(echo -n " "; u_echo $uT_watch; j_msg -u -m "${BAon}lsusb elapsed: ${BLon}%3R seconds${Boff}")
+time {
+j_msg "-${notice}" -p "Finding drivers identified by lsusb; please wait ..."
+# prepare to use progress bar
+lines=$("${lsusb_cmd[@]}" | wc -l)
+line_num=0
+[ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && HCU   # hide cursor while using progress bar
+while IFS= read -r line; do
+    [ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && {
+        # update the progress bar
+        progress_inline "$((line_num++))" "$lines"
+        # prep to show some extra info to the right (save pos; return left; adv to offset)
+        SCP; printf '\r'; CUF $offset
+        # print a sample of what line is being considered
+        printf '%s' "${line:0:10}"
+        # clear the rest of the line and return to saved pos
+        EL; RCP ;
+    }
+    # if the line contains a Driver= string, grab driver info and reset current_device
+    # do not quote the target pattern, or bash will treat it as literal text rather than ERE
+    if [[ "$line" =~ ${lsusb_driver_pattern} ]]; then
+    # (re)initialize current_device
+        current_device=""
+        # ${BASH_REMATCH[0]} = The entire, complete string that matched the overall pattern
+        # ${BASH_REMATCH[n]} = The text caught by the nth set of parentheses from the left
+        # with lsusb_driver_pattern = 'Class=([^,]+),${W1}Driver=([^,/]+)' the () for 1st capture group is non-comma/slash text following =
+        class="${BASH_REMATCH[1]}"
+        driver="${BASH_REMATCH[2]}"
+        j_msg "-${debug}" -p "driver: [$driver]"
+        j_msg "-${debug}" -p "class: [$class]"
+    # if the line is an ID line, get current_device
+    elif [[ "$line" =~ ${lsusb_id_pattern} ]]; then
+#        current_device="${class}: $( echo "$line" | sed -E "s|${lsusb_id_pattern}||" | xargs )"
+        # use parameter substitution with ${BASH_REMATCH[0]} to strip the entire match from the prefix
+        current_device="${class}: ${line#"${BASH_REMATCH[0]}"}"
+        j_msg "-${debug}" -p "current_device: [$current_device]"
+        # check what has been found - if no driver, nothing to do
+        if [[ -n "$driver" && "$driver" != "[none]" ]]; then
+            # there should always be a device description - so handle error if not
+            if [ -n "$current_device" ]; then
+                add_driver_device "$driver" "$current_device"
+            else
+                die "current_device [$current_device] should not be empty"
+            fi
+        fi
+    else
+        j_msg "-${debug}" -p "line matched neither lsusb_driver_pattern nor lsusb_id_pattern"
+        j_msg "-${debug}" -p "lsusb_driver_pattern: [$lsusb_driver_pattern]"
+        j_msg "-${debug}" -p "lsusb_id_pattern: [$lsusb_id_pattern]"
+    fi
+done < <("${lsusb_cmd[@]}" 2>&1)
+result=$?
+[ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && {
+    progress_inline "$lines" "$lines"   # finish progress bar at 100%
+    # go up one line; clean up right of progress bar
+    CUU 1; printf '\r'; CUF $offset; EL ;
+    SCU   # restore visible cursor
+    printf '\n'  # close out progress bar and go to next line
+}
+j_msg "-${notice}" -p -n "Done processing lsusb; result:"
+handle_result $result "ingested [${#driver_map[@]}]" "" "$notice"
+}   # time
+
+
+# (re)establish output format for time command
+#TIMEFORMAT="${BTon}lshw elapsed: ${BMon}%3R${BTon} seconds${Boff}"
+#TIMEFORMAT=$(j_msg -u -M $idx_sparkles "${BAon}lshw elapsed: ${BLon}%3R seconds${Boff}")
+TIMEFORMAT=$(echo -n " "; u_echo $uT_watch; j_msg -u -m "${BAon}lshw elapsed: ${BLon}%3R seconds${Boff}")
+time {
+# process lshw using -json output and jq to read just what is needed
+j_msg "-${notice}" -p -n "Finding driver records in lshw output ..."
+# since lswh_cmd uses the -json option, use jq to query the json output for just what is needed
+#  jq [options] <jq filter> [file...] ; see below
+#    option -r = raw output;  '...' is the jq filter; [file...] is omitted; output is substituted into readarray
+#  <jq filter> is a processing pipeline:
+#    .. = recursive descent operator
+#    | objects = evaluate only json objects; ignore strings, booleans, arrays...
+#    | select(.configuration.driver? != null) = conditional: if, inside configuration, driver is not empty, select it
+#    | [ .configuration.driver, .product // "" ] = construct 2-element array with this, or fallback to ""
+#    | @tsv = format as tab-separated-values
+readarray -t lshw_driver_records < <(
+    "${lshw_cmd[@]}" 2>&1 |
+    jq -r '
+        .. | objects | select(.configuration.driver? != null) |
+        [ .configuration.driver, .product // "" ] | @tsv
+    '
+) &>"${target_output_path}"
+result=$?
+# prepare to use progress bar
+records=${#lshw_driver_records[@]}
+handle_result $result "processed [$records] device nodes" "" "$notice"
+j_msg "-${notice}" -p -n "Transferring lshw driver records ..."
+
+# read selected records into driver and current_device variables
+for record in "${lshw_driver_records[@]}"; do
+    # read tab-separated values
+    IFS=$'\t' read -r driver current_device <<< "$record"
+    # this is now too quick to use progress bar
+    j_msg "-${debug}" -p "current_device: [$current_device]"
+    j_msg "-${debug}" -p "driver: [$driver]"
+    # check what has been found - if no driver, nothing to do
+    if [ -n "$driver" ]; then
+        # there should always be a device description - so handle error if not
+        if [ -n "$current_device" ]; then
+            add_driver_device "$driver" "$current_device"
+        else
+            die "current_device [$current_device] should not be empty"
+        fi
+    fi
+done &>"${target_output_path}"
+result=$?
+handle_result $result "total ingested: [${#driver_map[@]}]" "" "$notice"
+}   # time
+
+# sort the keys of the driver_map into the indexed array of sorted driver names
+j_msg "-${notice}" -p -n "Sorting unique drivers to new array ..."
+readarray -t sorted_drivers < <(printf '%s\n' "${!driver_map[@]}" | sort -u)
+handle_result $? "sorted drivers: [${#sorted_drivers[@]}]" "" "$notice"
+
+# display accumulated data in sorted-driver order
+printf '\n'
+longest=$(get_longest "${sorted_drivers[@]}")
+j_msg "-${debug}" -p "longest: [$longest]"
+col_width=$(( longest + 2 ))
+
+j_msg "-${notice}" -p "=== KERNEL CONFIGURATION BRIDGE REPORT ==="
+j_msg "-${notice}" -mp " Verify these modules/symbols exist in your .config after running localmodconfig:\n\n"
+
+for i in "${!sorted_drivers[@]}"; do
+    driver="${sorted_drivers[i]}"
+    hardware="${driver_map[$driver]}"
+    pad=$( repeat '.' $(( col_width - ${#driver})) )
+#    j_msg "-${debug}" -p "driver: [$driver]"
+#    j_msg "-${debug}" -p "hardware: [$hardware]"
+#    j_msg "-${debug}" -p "longest: [$longest]"
+#    j_msg "-${debug}" -p "col_width: [$col_width]"
+#    j_msg "-${debug}" -p "pad: [$pad]"
+
+    # Proactively identify critical core infrastructure blocks that MUST NOT be missed
+    kernel_hint=""
+    case "${driver}" in
+        i915|xe)                 kernel_hint="[DRM/Graphics - Requires firmware Blobs!]" ;;
+        igc|rtw89*)              kernel_hint="[Network - Crucial for internet bridge]" ;;
+        nvme)                    kernel_hint="[Storage - Crucial Boot Device! Requires BLK_DEV_NVME]" ;;
+        snd_sof*)                kernel_hint="[Audio - Sound Open Firmware, mandatory for Alderlake喇叭]" ;;
+        xhci_*)                  kernel_hint="[USB - Core Host Controller Infrastructure]" ;;
+        i801_smbus|i2c_i801)     kernel_hint="[Bus - Intel SMBus / I2C Core Framework]" ;;
+        intel-lpss*)             kernel_hint="[Bus - Low Power Subsystem (Trackpad/Touchscreen base)]" ;;
+    esac
+
+    # alternately colorize output rows
+    if (( i % 2 == 0 )); then
+        color="$BWon"
+        hint_color="$Oon"
+        kernel_hint_color="$BYon"
+    else
+        color="$BYon"
+        hint_color="$Con"
+        kernel_hint_color="$BGon"
+    fi
+    args=("$BMon" "$i" "$Boff")
+    args+=("$color" "$driver" "$Boff")
+    args+=("$hint_color" "$pad" "$Boff")
+    args+=("$hint_color" "$hardware" "$Boff")
+    if [ -n "$kernel_hint" ]; then
+        printf "    (%s%02s%s) %s%s%s %s%s%s: %s%s%s %s\n" "${args[@]}" "${kernel_hint_color}${kernel_hint}${Boff}"
+    else
+        printf "    (%s%02s%s) %s%s%s %s%s%s: %s%s%s\n" "${args[@]}"
+    fi
+done
+printf '\n'
