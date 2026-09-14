@@ -1,0 +1,52 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# setTIMEFORMAT.hdr - header file to define customized TIMEFORMAT
+# (see man bash, Shell Variables" and "Pipelines" sections)
+# positioned after j_msg is defined b/c it is assigned as the file is parsed
+# ( activate with  'TIMEFORMAT="$myTIMEFORMAT"'; deactivate with 'unset TIMEFORMAT' )
+
+setTIMEFORMAT() # (Bash) define customized TIMEFORMAT
+{ # input validation guards
+  [ $# -gt 1 ] && { j_msg "-${err}" -p "usage: setTIMEFORMAT [-l] (option -l for long form)"; return 1 ; }
+  [ $# -eq 1 ] && [[ "$1" != "-l" ]] && {
+      j_msg "-${err}" -p "error: arg [$1] invalid. usage: setTIMEFORMAT [-l] (option -l for long form)"; return 1 ; }
+  # assign format using short form default
+  format="${1:-"-p"}"
+  # assing default additional format for CPU percentage
+  cpu_pcnt="%P%%"
+  case "$format" in
+    "-p")
+       real_format="%3Rs"
+       user_format="%3Us"
+       sys_format="%3Ss"
+       ;;
+    "-l")
+       real_format="%lR"
+       user_format="%lU"
+       sys_format="%lS"
+       ;;
+    *) die "invalid format in setTIMEFORMAT.hdr" ;;
+  esac
+  export TIMEFORMAT=$(
+    echo; echo -n " "; u_echo $uT_watch
+    j_msg -u -m -n "${BAon}Real: ${BLon}${real_format}${Boff}"
+    j_msg -u -m -n "  ${BAon}User: ${BLon}${user_format}${Boff}"
+    j_msg -u -m "  ${BAon}Sys: ${BLon}${sys_format} ${BWon}(${BOon}${cpu_pcnt}${BWon})${Boff}"
+  )
+}
+# @usage setTIMEFORMAT
+# @args -l to use long format
+# @rule the setTIMFORMAT.hdr must be sourced (not invoked) after script_header_joetoo
+# @append is sourced, before the function can be invoked
+# @deps j_msg
+# @note deactivate with "unset TIMEFORMAT"
+# @note timeformats --
+# @cont %%: A literal % character.
+# @cont %[p][l]R: The elapsed Real (wall-clock) time in seconds.
+# @cont %[p][l]U: The total number of CPU seconds spent in User mode.
+# @cont %[p][l]S: The total number of CPU seconds spent in System (kernel) mode.
+# @cont %P: The CPU percentage, computed as (%U + %S) / %R.
+# @cont p (Precision): optional digit specifying how many decimal places
+# @cont l (Long Format): optional flag specifying elapsed time should be rendered as "0m0.000s"
