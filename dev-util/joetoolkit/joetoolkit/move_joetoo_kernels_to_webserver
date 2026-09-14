@@ -1,5 +1,9 @@
 #!/bin/bash
-# move_joetoo_kernels_to_webserver  - (c) joe brendler 2025-2975
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# move_joetoo_kernels_to_webserver
+
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   # like =$(basename $0) but w/o subshell and function call
@@ -35,7 +39,7 @@ is_file_size_stable() {
     local STABLE=$TRUE
     local file="$1"
     filesize=$(get_file_size "$file")
-    j_msg -${debug} -p "in ${FUNCNAME[0]}; file: [$file], filesize: [$filesize]"
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}; file: [$file], filesize: [$filesize]"
     local size2=0
     # make repeated checks of size (for stat, --format= is same as -c)
     for ((i=0; i<${SIZE_CHECK_ITERATIONS}; i++)) ; do
@@ -61,108 +65,108 @@ get_file_size() {
 checkroot
 
 TRIED=$FALSE ; ERROR=$FALSE
-for tarball in $(find /home/${user}/ -maxdepth 1 -name 'linux*.tar.bz2') ; do
+for tarball in $(find "/home/${user}/" -maxdepth 1 -name 'linux*.tar.bz2') ; do
     TRIED=$TRUE
-    j_msg -${notice} -p "found: ${tarball}"
+    j_msg "-${notice}" -p "found: ${tarball}"
     /usr/bin/logger -p cron.notice "${PN} found ${tarball}"
-    j_msg -${notice} -p -n "checking if its transfer is complete ..."
+    j_msg "-${notice}" -p -n "checking if its transfer is complete ..."
     SCP ; filesize=$(get_file_size "${tarball}")
-    j_msg -${debug} -p "in main script; tarball: [${tarball}], filesize: [$filesize]"
-    j_msg -${notice} -mp -n " (${filesize})" ; RCP
+    j_msg "-${debug}" -p "in main script; tarball: [${tarball}], filesize: [$filesize]"
+    j_msg "-${notice}" -mp -n " (${filesize})" ; RCP
     iterations=0
     while ! is_file_size_stable "${tarball}" && \
-      [ $iterations -lt ${FAILED_WHILE_LOOP_ITERATION_LIMIT} ] ; do
-        j_msg -${notice} -mp -n " (${filesize})" ; RCP
-        sleep ${SIZE_CHECK_INTERVAL}      # wait a bit
+      [ "$iterations" -lt "${FAILED_WHILE_LOOP_ITERATION_LIMIT}" ] ; do
+        j_msg "-${notice}" -mp -n " (${filesize})" ; RCP
+        sleep "${SIZE_CHECK_INTERVAL}"      # wait a bit
         let iterations+=1
     done
-    if [ $iterations -ge ${FAILED_WHILE_LOOP_ITERATION_LIMIT} ] ; then
+    if [ "$iterations" -ge "${FAILED_WHILE_LOOP_ITERATION_LIMIT}" ] ; then
         die "exceeded iteration limit"
         /usr/bin/logger -p cron.err "${PN} failed (iteration limit exceeded)"
     else
-        j_msg -${notice} -mp -n " (${BGon}complete${Boff})"
-        right_status $TRUE ${notice}
+        j_msg "-${notice}" -mp -n " (${BGon}complete${Boff})"
+        right_status $TRUE "${notice}"
     fi
 
     # look for hashfile
-    j_msg -${notice} -p -n "looking for hash file ..."
+    j_msg "-${notice}" -p -n "looking for hash file ..."
     iterations=0
     while [ ! -f "${tarball}.sha512sum" ] && \
-      [ $iterations -lt ${FAILED_WHILE_LOOP_ITERATION_LIMIT} ]  ; do
-        sleep ${SIZE_CHECK_INTERVAL}      # wait a bit
+      [ "$iterations" -lt "${FAILED_WHILE_LOOP_ITERATION_LIMIT}" ]  ; do
+        sleep "${SIZE_CHECK_INTERVAL}"      # wait a bit
     done
-    if [ $iterations -ge ${FAILED_WHILE_LOOP_ITERATION_LIMIT} ] ; then
+    if [ "$iterations" -ge "${FAILED_WHILE_LOOP_ITERATION_LIMIT}" ] ; then
         die "exceeded iteration limit"
         /usr/bin/logger -p cron.err "${PN} failed (iteration limit exceeded)"
     else
-        j_msg -${notice} -mp -n " (${BGon}found${Boff})"
-        right_status $TRUE ${notice}
+        j_msg "-${notice}" -mp -n " (${BGon}found${Boff})"
+        right_status $TRUE "${notice}"
     fi
-    [ $iterations -ge ${FAILED_WHILE_LOOP_ITERATION_LIMIT} ] && \
+    [ "$iterations" -ge "${FAILED_WHILE_LOOP_ITERATION_LIMIT} "] && \
         die "exceeded iteration limit"
 
     # receive hashfile
-    j_msg -${notice} -p -n "receiving hash file ..."
+    j_msg "-${notice}" -p -n "receiving hash file ..."
     SCP ; filesize=$(get_file_size "${tarball}.sha512sum")
-    j_msg -${notice} -mp -n " (${filesize})" ; RCP
+    j_msg "-${notice}" -mp -n " (${filesize})" ; RCP
     while ! is_file_size_stable "${tarball}.sha512sum" && \
-      [ $iterations -lt ${FAILED_WHILE_LOOP_ITERATION_LIMIT} ] ; do
-        j_msg -${notice} -mp -n " (${filesize})" ; RCP
-        sleep ${SIZE_CHECK_INTERVAL}	  # wait a bit
+      [ "$iterations" -lt "${FAILED_WHILE_LOOP_ITERATION_LIMIT}" ] ; do
+        j_msg "-${notice}" -mp -n " (${filesize})" ; RCP
+        sleep "${SIZE_CHECK_INTERVAL}"	  # wait a bit
         let iterations+=1
     done
-    if [ $iterations -ge ${FAILED_WHILE_LOOP_ITERATION_LIMIT} ] ; then
+    if [ "$iterations" -ge "${FAILED_WHILE_LOOP_ITERATION_LIMIT}" ] ; then
         die "exceeded iteration limit"
         /usr/bin/logger -p cron.err "${PN} failed (iteration limit exceeded)"
     else
-        j_msg -${notice} -mp -n " (${BGon}complete${Boff})"
-        right_status $TRUE ${notice}
+        j_msg "-${notice}" -mp -n " (${BGon}complete${Boff})"
+        right_status $TRUE "${notice}"
     fi
 
     # compute and compare hash
-    j_msg -${notice} -p -n "computing sha512sum ..."
-    tarball_hash=$(sha512sum ${tarball} | awk '{print $1}')
+    j_msg "-${notice}" -p -n "computing sha512sum ..."
+    tarball_hash=$(sha512sum "${tarball}" | awk '{print $1}')
     received_hash=$(awk '{print $1; exit}' "${tarball}.sha512sum")
     if [[ "${tarball_hash}" != "${received_hash}" ]] ; then
         die "sha512sum is incorrect"
         /usr/bin/logger -p cron.err "${PN} failed (sha512sum incorrect)"
     else
-        j_msg -${notice} -mp -n " (${BGon}verified${Boff})"
-        right_status $TRUE ${notice}
+        j_msg "-${notice}" -mp -n " (${BGon}verified${Boff})"
+        right_status $TRUE "${notice}"
     fi
 
     # copy tarball to (correct) webserver (presently no nxp/imx/fsl kernels supported)
-    case $tarball in
-        *"joetoo"*             ) webserver_dir=${joetoo_kernel_webserver_dir} ;;
-        *"rk3"*"armbian"*      ) webserver_dir=${rockchip_kernel_webserver_dir} ;;
-        *"mes"*"armbian"*      ) webserver_dir=${amlogic_kernel_webserver_dir} ;;
-        *"arm64-uefi_armbian"* ) webserver_dir=${arm64-uefi-kernel_webserver_dir} ;;
+    case "$tarball" in
+        *"joetoo"*             ) webserver_dir="${joetoo_kernel_webserver_dir}" ;;
+        *"rk3"*"armbian"*      ) webserver_dir="${rockchip_kernel_webserver_dir}" ;;
+        *"mes"*"armbian"*      ) webserver_dir="${amlogic_kernel_webserver_dir}" ;;
+        *"arm64-uefi_armbian"* ) webserver_dir="${arm64-uefi-kernel_webserver_dir}" ;;
         *                 )
             /usr/bin/logger -p cron.err "${PN} failed to copy tarball and sha512sum to webserver" ;
             die "invalid tarball, please investigate" ;;
     esac
-    j_msg -${notice} -p -n "moving tarball and sha512sum to webserver ..."
-    cp "${tarball}" ${webserver_dir%/}/ 2>/dev/null ; result=$?
-    cp "${tarball}.sha512sum" ${webserver_dir%/}/ 2>/dev/null ; result2=$?
+    j_msg "-${notice}" -p -n "moving tarball and sha512sum to webserver ..."
+    cp "${tarball}" "${webserver_dir%/}/" 2>/dev/null ; result=$?
+    cp "${tarball}.sha512sum" "${webserver_dir%/}/" 2>/dev/null ; result2=$?
     if [ ! $result -eq 0 ] || [ ! $result2 -eq 0 ] ; then
-        ERROR=$TRUE ; right_status 1 ${notice}
+        ERROR=$TRUE ; right_status 1 "${notice}"
         /usr/bin/logger -p cron.err "${PN} failed to copy tarball and sha512sum to webserver"
     else
-        right_status $TRUE ${notice}
+        right_status $TRUE "${notice}"
         /usr/bin/logger -p cron.notice "${PN} copied tarball and sha512sum to webserver"
-        j_msg -${notice} -p -n "removing  copy from /home/${user} ..."
+        j_msg "-${notice}" -p -n "removing  copy from /home/${user} ..."
         rm "${tarball}" 2>/dev/null ; result=$?
         rm "${tarball}.sha512sum" 2>/dev/null ; result2=$?
         if [ ! $result -eq 0 ] || [ ! $result2 -eq 0 ] ; then
-            ERROR=$TRUE ; right_status 1 ${notice}
+            ERROR=$TRUE ; right_status 1 "${notice}"
             /usr/bin/logger -p cron.err "${PN} failed to remove copy of tarball and sha512sum from /home/${user}/"
         else
-            right_status $TRUE ${notice}
+            right_status $TRUE "${notice}"
             /usr/bin/logger -p cron.notice "${PN} removed copy of tarball and sha512sum from /home/${user}/"
         fi
     fi
 done
 
 if [ $ERROR ]; then exit_status=1; else exit_status=0; fi
-if [ $TRIED ]; then loggit ${PN} ${exit_status}; fi
+if [ $TRIED ]; then loggit "${PN}" "${exit_status}"; fi
 exit ${exit_status}

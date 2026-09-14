@@ -1179,7 +1179,7 @@ _do_devtcp() {
       j_msg "-${warn}" -p "assiigned timeout=1 because it and waittime were both empty"
     fi
   fi
-  j_msg "-${notice}" -m "${BWon}(notice)${Boff} command: timeout $timeout bash -c \"</dev/tcp/\${target}/22\""
+  j_msg "-${notice}" -m "${BWon}(notice)${Boff} command: timeout $timeout bash -c \"</dev/tcp/\${target}/\{port}\""
 
   # handle user-directed RESOLVE choice
 #  if [ "$RESOLVE" ] ; then _nm_opts+=("-R"); else _nm_opts+=("-n"); fi

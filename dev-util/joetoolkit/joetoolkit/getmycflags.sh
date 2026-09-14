@@ -83,4 +83,4 @@ j_msg "-${notice}" -p "See also https://wiki.gentoo.org/wiki/Safe_CFLAGS"
 j_msg "-${notice}" -m "   to determine what additional switches you must/should set."
 echo
 unset TIMEFORMAT
-j_msg "-${notice}" -p "done"
+j_msg "-${notice}" -p "Done"

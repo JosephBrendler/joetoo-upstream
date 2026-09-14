@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 source /usr/sbin/script_header_joetoo
 checkroot
 
@@ -26,7 +29,7 @@ nextcloud_dir="/var/www/localhost/htdocs/myCloud"
 silent=">/dev/null 2>&1"
 
 # don't set verbosity unless it is not already set (allow calling program to set it)
-[ -z $verbosity ] && verbosity=${notice}
+[ -z "$verbosity" ] && verbosity="${notice}"
 
 
 separator "$(hostname)" "${PN}-${BUILD}"
@@ -41,22 +44,22 @@ msg_sequence=(
 #-----[ main script ]--------------------------------------------------
 
 old_dir=$(pwd)
-j_msg -${notice} -p -n "${BYon}Moving to ${BMon}${nextcloud_dir}${Boff}"
+j_msg "-${notice}" -p -n "${BYon}Moving to ${BMon}${nextcloud_dir}${Boff}"
 cd "${nextcloud_dir}" || die "failed to move to ${nextcloud_dir}"
-right_status $TRUE ${notice}
-j_msg -${info} -m "${BWon}pwd: ${LBon}$(pwd)${Boff}"
+right_status $TRUE "${notice}"
+j_msg "-${info}" -m "${BWon}pwd: ${LBon}$(pwd)${Boff}"
 
 # mini run_sequence
 for ((i=0; i< ${#command_sequence[@]}; i++)) ; do
-    j_msg -${notice} -p -n "${BWon}running ${BGon}${msg_sequence[$i]}${Boff} ..."
+    j_msg "-${notice}" -p -n "${BWon}running ${BGon}${msg_sequence[$i]}${Boff} ..."
     eval "${command_sequence[$i]}" || die "failed: ${command_sequence[$i]}"
-    right_status $TRUE ${notice}
+    right_status $TRUE "${notice}"
 done
-j_msg -${notice} -mp "" # newline
+j_msg "-${notice}" -mp "" # newline
 
-j_msg -${notice} -p -n "${BYon}Moving back to ${BMon}${old_dir}${Boff}"
-cd ${nextcloud_dir} || die "failed to move to ${nextcloud_dir}"
-right_status $TRUE ${notice}
-j_msg -${info} -m "${BWon}pwd: ${LBon}$(pwd)${Boff}"
+j_msg "-${notice}" -p -n "${BYon}Moving back to ${BMon}${old_dir}${Boff}"
+cd "${nextcloud_dir}" || die "failed to move to ${nextcloud_dir}"
+right_status $TRUE "${notice}"
+j_msg "-${info}" -m "${BWon}pwd: ${LBon}$(pwd)${Boff}"
 
-j_msg -${notice} -p "${BGon}Done${Boff}"
+j_msg "-${notice}" -p "${BGon}Done${Boff}"

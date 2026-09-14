@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 source /usr/sbin/script_header_joetoo
 
 #-----[ variables ]------------------------------------------
@@ -7,7 +10,7 @@ PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
 
 if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
 
-[ -z $verbosity ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
 
 nextcloud_dir="/var/www/localhost/htdocs/myCloud"
 silent=">/dev/null 2>&1"
@@ -30,21 +33,21 @@ checkroot
 separator "$(hostname)" "${PN}-${BUILD}"
 
 old_dir=$(pwd)
-j_msg -${notice} -p -n "${BYon}Moving to ${BMon}${nextcloud_dir}${Boff}"
-cd ${nextcloud_dir} || die "failed to move to ${nextcloud_dir}"
-right_status $TRUE ${notice}
-j_msg -${info} -p "${BWon}pwd: ${LBon}$(pwd)${Boff}"
+j_msg "-${notice}" -p -n "${BYon}Moving to ${BMon}${nextcloud_dir}${Boff}"
+cd "${nextcloud_dir}" || die "failed to move to ${nextcloud_dir}"
+right_status $TRUE "${notice}"
+j_msg "-${info}" -p "${BWon}pwd: ${LBon}$(pwd)${Boff}"
 
 for ((i=0; i< ${#command_sequence[@]}; i++)) ; do
-    j_msg -${notice} -p -n "${BWon}running ${BGon}${msg_sequence[$i]}${Boff} ..."
+    j_msg "-${notice}" -p -n "${BWon}running ${BGon}${msg_sequence[$i]}${Boff} ..."
     eval "${command_sequence[$i]}" || die "failed: ${command_sequence[$i]}"
-    right_status $TRUE ${notice}
+    right_status $TRUE "${notice}"
 done
-j_msg -${notice} -mp ""  # newline
+j_msg "-${notice}" -mp ""  # newline
 
-j_msg -${notice} -p -n "${BYon}Moving back to ${BMon}${old_dir}${Boff}"
-cd ${nextcloud_dir} || die "failed to move to ${nextcloud_dir}"
-right_status $TRUE ${notice}
-j_msg -${info} -p "${BWon}pwd: ${LBon}$(pwd)${Boff}"
+j_msg "-${notice}" -p -n "${BYon}Moving back to ${BMon}${old_dir}${Boff}"
+cd "${nextcloud_dir}" || die "failed to move to ${nextcloud_dir}"
+right_status $TRUE "${notice}"
+j_msg "-${info}" -p "${BWon}pwd: ${LBon}$(pwd)${Boff}"
 
-j_msg -${notice} -p "${BGon}Done${Boff}"
+j_msg "-${notice}" -p "${BGon}Done${Boff}"

@@ -1,9 +1,17 @@
 #!/bin/bash
-# updated 9/13/2025 - switched from copying *.crt to * (to get e.g. .pem files as well)
-#
+# Copyright 2024-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# install_my_local_ca_certificates - switched from copying *.crt to * (to get e.g. .pem files as well)
+
+# make the /usr/local/share/ca-certificates dir if needed
 [[ ! -e /usr/local/share/ca-certificates ]] && mkdir -p /usr/local/share/ca-certificates/
+# if local server_serts dir exists, copy those certs
 [[ -d /usr/local/sbin/server_certs ]] && cp -av /usr/local/sbin/server_certs/* /usr/local/share/ca-certificates/
+# if legacy joetoo /usr/sbin/server_certs dir exists, copy those certs
 [[ -d /usr/sbin/server_certs ]] && cp -av /usr/sbin/server_certs/* /usr/local/share/ca-certificates/
+# if modern joetoo root and im certs dir is populated, copy those certs, too
 [[ -d /usr/share/joetoolkit/server_certs ]] && cp -av /usr/share/joetoolkit/server_certs/* /usr/local/share/ca-certificates/
 
+# run the update tool from app-misc/ca-certificates
 update-ca-certificates

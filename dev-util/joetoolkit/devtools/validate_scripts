@@ -8,6 +8,7 @@
 # shellcheck source=/usr/sbin/script_header_joetoo_extended
 # shellcheck source=/usr/sbin/script_header_joetoo_unicode
 source /usr/sbin/script_header_joetoo
+source /usr/sbin/setTIMEFORMAT.hdr
 
 #-----[ global variables ]-------------------------------------------------------------------
 
@@ -288,10 +289,10 @@ millis2time()   # (POSIX) convert integer ms to time format
   # in POSIX shell (( x % divisor )) produces the "remainder - fractional part" of division
   _mt_mmm=$(( _mt_ms % 1000 )) || mt_ret=1  #..................# millisecond part = remainder when max whole # of seconds is removed
 
-  _mt_sec=$(( _mt_ms / 1000 )) || mt_ret=$(( mt_ret | 2 ))    # integer number of seconds in elapsed time
-  _mt_ss=$((  _mt_sec % 60  ))  || mt_ret=$(( mt_ret | 4 ))   # seconds part = remainder when max whole # of minutes is removed
+  _mt_sec=$(( _mt_ms / 1000 )) || mt_ret=$(( mt_ret | 2 ))     # integer number of seconds in elapsed time
+  _mt_ss=$((  _mt_sec % 60  ))  || mt_ret=$(( mt_ret | 4 ))    # seconds part = remainder when max whole # of minutes is removed
 
-  _mt_min=$(( _mt_sec / 60  ))  || mt_ret=$(( mt_ret | 8 ))   # integer number of minutes in elapsed time
+  _mt_min=$(( _mt_sec / 60  ))  || mt_ret=$(( mt_ret | 8 ))    # integer number of minutes in elapsed time
   _mt_mm=$((  _mt_min % 60  ))  || mt_ret=$(( mt_ret | 16 ))   # minutes part = remainder when max whole # of hrs is removed
 
   _mt_hrs=$(( _mt_min / 60  ))  || mt_ret=$(( mt_ret | 32 ))   # integer number of hours in elapsed time
@@ -380,10 +381,11 @@ for x in "${target_array[@]}" ; do
         if [ $TIMERS ] ; then
             j_msg "-${debug}" -p "full command: [time $executable ${arguments[*]} $x]"
             # Note: use bash PIPESTATUS array to get exit status of the command, not the grep
+            #   use setTIMEFORMAT.hdr (sourced above) function to customize time output (-l = long format)
+            setTIMEFORMAT -l
             time "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
-            if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
-                 j_msg "-${err}" -m "$x failed syntax check"
-            fi
+            if [ "${PIPESTATUS[0]}" -ne 0 ] ; then j_msg "-${err}" -m "$x failed syntax check"; fi
+            unset TIMEFORMAT
         else
             j_msg "-${debug}" -p "full command: [$executable ${arguments[*]} $x]"
             # Note: use bash PIPESTATUS array to get exit status of the command, not the grep
@@ -399,8 +401,11 @@ for x in "${target_array[@]}" ; do
         if [ $TIMERS ] ; then
             j_msg "-${debug}" -p "full command: [time $executable ${arguments[*]} $x]"
             j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."
+            #   use setTIMEFORMAT.hdr (sourced above) function to customize time output (-l = long format)
+            setTIMEFORMAT -l
             time "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
             result="${PIPESTATUS[0]}"
+            unset TIMEFORMAT
         else
             j_msg "-${debug}" -p "full command: [time $executable ${arguments[*]} $x]"
             j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."

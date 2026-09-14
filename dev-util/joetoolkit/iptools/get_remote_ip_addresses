@@ -5,15 +5,20 @@
 source /usr/sbin/script_header_joetoo
 source /usr/sbin/script_header_joetoo_ssh
 
-checkroot
+checkroot   # run as root so as to be able to cache user's ssh key (to do: script user ssh tools)
 
 user="joe"
-SSH_KEY="/home/"$user"/.ssh/id_ecdsa"
-remotes_list="/home/"$user"/scratch/joetoo_machine_list"
+SSH_KEY="/home/$user/.ssh/id_ecdsa"
+remotes_list="/home/$user/scratch/joetoo_machine_list"
+remotes_list_host="gmki91"
+
+declare -a remotes=()
 
 # use script_header_joetoo_ssh so root can benefit from user ssh transport
 start_ssh_agent "$user" "$SSH_KEY"
 # source this to make SSH_KEY and SSH_AUTH_SOCK available
+# ShellCheck can't follow non-constant source
+# shellcheck disable=SC1090
 source "$AGENT_ENV_FILE"
 # load the key (may require passphrase)
 load_key "$user"
@@ -24,19 +29,30 @@ set -o pipefail
 
 # use arrays to preserve quoting/word-splitting
 # (and abbreviate otherwise really long command)
-ssh_args=( -n -q -o ConnectTimeout=2 -i "$SSH_KEY" )
-ssh_cmd=(ip addr)
-grep_cmd=(grep 'scope global')
-awk_cmd=(awk '{ ans=$2; sub(/\/.*/, "", ans); print ans; }')
+ssh_args=( -n -q -o ConnectTimeout=2 -i "$SSH_KEY" )   #.......# -q quiet; -n dont read stdin; spec timeout; spec key
+ssh_cmd=(ip addr)   #..........................................# issue remote command "ip addr"
+grep_cmd=(grep 'scope global')   #.............................# filter for ipv4 and ipv6 global addresses
+# keep single quotes so Bash treats $2 as literal text for awk (shellcheck lints bash but not the awk)
+# shellcheck disable=SC2016
+awk_cmd=(awk '{ ans=$2; sub(/\/.*/, "", ans); print ans; }')   # use awk to strip trailing subnet CIDR (e.g. /24)
+
+# get the remotes_list
+if [[ "$(hostname)" == "$remotes_list_host" ]]; then
+    readarray -t remotes < <( cat "$remotes_list" )
+else
+    readarray -t remotes < <(
+         sudo -u "$user" SSH_AUTH_SOCK="$SSH_AUTH_SOCK" ssh "${ssh_args[@]}" "${user}@${remotes_list_host}" cat "$remotes_list"
+    )
+fi
 
 # iterate through remotes list
-while read -r x ; do
+for host in "${remotes[@]}"; do
     # print space and underlined heading
-    echo; echo $x; echo $(repeat '-' ${#x})
+    echo; echo "$host"; repeat '-' "${#host}"
     # run ssh as user to issue command to remotes
-    sudo -u "$user" SSH_AUTH_SOCK="$SSH_AUTH_SOCK" ssh "${ssh_args[@]}" "${user}@${x}" "${ssh_cmd[@]}" | \
+    sudo -u "$user" SSH_AUTH_SOCK="$SSH_AUTH_SOCK" ssh "${ssh_args[@]}" "${user}@${host}" "${ssh_cmd[@]}" | \
         "${grep_cmd[@]}" | "${awk_cmd[@]}" || echo "(no response)"
-done <<<$(cat "$remotes_list")
+done
 
 # restore normal state
 set +o pipefail

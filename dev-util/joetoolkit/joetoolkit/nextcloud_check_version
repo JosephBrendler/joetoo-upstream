@@ -1,5 +1,8 @@
 #!/bin/bash
-# joetoo_cli_example - template app for joetoo CLI (c) Joe Brendler 2026-7789
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# nextcloud_check_version - rapid app developed from joetoo-cli-example - checks both ebuild and webapp installed versions
 
 script_header_installed_dir="/usr/sbin"
 #script_header_installed_dir=/home/joe/myUtilities/dev-util/script_header_joetoo
@@ -56,20 +59,20 @@ varlist="${varlist} BREAK bool.LOCALIZED yn.INITIALIZED_ME"
 get_webapp_installed_version() {
   if [ -z "$(find /var/www/localhost/htdocs/myCloud/ 2>/dev/null)" ]
   then
-    j_msg -${err} "nextcloud has not been installed by webapp-config"
+    j_msg "-${err}" "nextcloud has not been installed by webapp-config"
     exit
   else
     webapp_installed_version=$(basename $(find /var/www/localhost/htdocs/myCloud/ -maxdepth 1 -iname '.webapp-nextcloud*') | \
       sed 's/\.webapp-nextcloud-//')
-    j_msg -${notice} -p "webapp_installed_version: ${webapp_installed_version}"
+    j_msg "-${notice}" -p "webapp_installed_version: ${webapp_installed_version}"
   fi
 }
 
 get_emerged_versions() {
   ev_string="$(eix-update -q && eix -eIc nextcloud)"
-  j_msg -${debug} -p "ev_string: ${ev_string}"
+  j_msg "-${debug}" -p "ev_string: ${ev_string}"
   ev_string_l="${ev_string#*\(}"
-  j_msg -${debug} -p "ev_string_l: ${ev_string_l}"
+  j_msg "-${debug}" -p "ev_string_l: ${ev_string_l}"
   ev_string_lr="${ev_string_l%)*}"
 #  emerged_versions=$(echo ${answer} | awk -F[\(\)] '{print $3,$5,$7 }' )
   cut=""; version=""
@@ -77,20 +80,20 @@ get_emerged_versions() {
 #  while [ -n "${ev_string_lr}" ]
   while [[ "${ev_string_lr}" ==  *"("* ]]
   do
-    j_msg -${debug} -p "ev_string_lr: ${ev_string_lr}"
+    j_msg "-${debug}" -p "ev_string_lr: ${ev_string_lr}"
     # cut out the first parenthetically enclosed version
     cut="${ev_string_lr#*\(}"
-    j_msg -${debug} -p "  cut: ${cut}"
+    j_msg "-${debug}" -p "  cut: ${cut}"
     version="${cut%%)*}"
-    j_msg -${debug} -p "  version: ${version}"
+    j_msg "-${debug}" -p "  version: ${version}"
     emerged_version_list+=("${version}")
     msg="  emerged_version_list: [${emerged_version_list[@]}]"
-    j_msg -${debug} -p "${msg}"
+    j_msg "-${debug}" -p "${msg}"
     # re-set ev_string_lr to the remainder
     ev_string_lr="${cut#*)}"
   done
   msg="emerged_version_list: [${emerged_version_list[@]}]"
-  j_msg -${notice} -p "${msg}"
+  j_msg "-${notice}" -p "${msg}"
 }
 
 
@@ -98,13 +101,13 @@ check_emerged_versions() {
   for (( i=0; i<${#emerged_version_list[@]}; i++ ))
   do
     myver="${emerged_version_list[$i]}"
-    vercomp ${myver} ${webapp_installed_version} ; result=$?
-    j_msg -${notice} -p "${BWon}(emerged version) ${myver} $(show_result ${result}) ${BWon}${webapp_installed_version} (webapp-installed version)${Boff}"
-    case ${result} in
-      2 ) j_msg -${notice} -p "${BRon}  version $myver should be removed${Boff}" ;; # 2 is <
-      0 ) j_msg -${notice} -p "${BWon}  version $myver is current; no action required${Boff}" ;; # 0 is =
-      1 ) j_msg -${notice} -p "${BYon}  version $myver is newer ; please run ${BGon}nextcloud_upgrade ${myver}${Boff}" ; maybe_do_upgrade "${myver}" ;; # 1 is >
-      * ) j_msg -${err} "  error: bad version comparison"; exit ;;
+    vercomp "${myver}" "${webapp_installed_version}" ; result=$?
+    j_msg "-${notice}" -p "${BWon}(emerged version) ${myver} $(show_result ${result}) ${BWon}${webapp_installed_version} (webapp-installed version)${Boff}"
+    case "${result}" in
+      2 ) j_msg "-${notice}" -p "${BRon}  version $myver should be removed${Boff}" ;; # 2 is <
+      0 ) j_msg "-${notice}" -p "${BWon}  version $myver is current; no action required${Boff}" ;; # 0 is =
+      1 ) j_msg "-${notice}" -p "${BYon}  version $myver is newer ; please run ${BGon}nextcloud_upgrade ${myver}${Boff}" ; maybe_do_upgrade "${myver}" ;; # 1 is >
+      * ) j_msg "-${err}" "  error: bad version comparison"; exit ;;
     esac
   done
 }
@@ -116,8 +119,8 @@ maybe_do_upgrade() {
   yn_prompt "${BYon}  would you like to run ${BRon}# ${BGon}nextcloud_upgrade ${myver}${BYon} now?${Boff}"
   case ${answer:0:1} in
     [yY] ) eval "nextcloud_upgrade ${myver}" ;;
-    [nN] ) j_msg -${notice} -p "${BRon}Not${Boff} running nextcloud_upgrade; user declined" ;;
-    *    ) j_msg -${err} "error; bad response to upgrade question" ;;
+    [nN] ) j_msg "-${notice}" -p "${BRon}Not${Boff} running nextcloud_upgrade; user declined" ;;
+    *    ) j_msg "-${err}" "error; bad response to upgrade question" ;;
   esac
 }
 
@@ -128,16 +131,16 @@ app_configure || die "failed to app_configure"
 
 # re-assign varlist variables appended at the top of the script and thus
 # over-written by app_configure
-j_msg -${debug} -n -m "(re)assigning LOCALIZED"
+j_msg "-${debug}" -n -m "(re)assigning LOCALIZED"
 LOCALIZED=$TRUE
 handle_result $? "$(TrueFalse $LOCALIZED)" "failed to reassign LOCALIZED" "$debug"
-j_msg -${debug} -n -m "(re)assigning INITIALIZED_ME"
+j_msg "-${debug}" -n -m "(re)assigning INITIALIZED_ME"
 INITIALIZED_ME="yes"
 handle_result $? "$INITIALIZED_ME" "failed to reassign INITIALIZED_ME" "$debug"
 
 
 d_do show_config "$debug"  # show config prior to processing cmdline only at info/debug verbosity
-j_msg -${debug} -m "(BEFORE process_cmdline)"
+j_msg "-${debug}" -m "(BEFORE process_cmdline)"
 
 # note that without a defined command sequence and  the use of run_sequence
 # the INTERACTIVE, RESUME envinronment variables and their corresponding
@@ -145,7 +148,7 @@ j_msg -${debug} -m "(BEFORE process_cmdline)"
 process_cmdline "$@" || die "failed to process_cmdline"
 
 d_do show_config "$info"  # show config prior to processing cmdline only at info/debug verbosity
-j_msg -${info} -m "(AFTER process_cmdline)"
+j_msg "-${info}" -m "(AFTER process_cmdline)"
 
 # instead of calling run_sequence for interactive oversight of complex
 # processes, simple tasks can be coded directly, right here

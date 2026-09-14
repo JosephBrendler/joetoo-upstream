@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # find ... -exec sh -c '...' _ {} +
 # above idiom batches found files and passes them as arguments to an inline shell script (sh)
@@ -17,7 +19,7 @@ PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
 
 if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
 
-[ -z $verbosity ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
 
 checkroot
 separator "$(hostname)" "${PN}-${BUILD}"

@@ -66,7 +66,7 @@ add_driver_device() {
     if [[ -n ${driver_map[$driver]} ]]; then
         driver_map["$driver"]+=" / $device"
     else
-        driver_map["$driver"]=$device
+        driver_map["$driver"]="$device"
         unique_drivers+=("$driver")
     fi
 }
@@ -86,7 +86,7 @@ current_device=""
 # (re)establish output format for time command
 #TIMEFORMAT="${BTon}lspci elapsed: ${BMon}%3R${BTon} seconds${Boff}"
 #TIMEFORMAT=$(j_msg -u -M $idx_sparkles "${BAon}lspci elapsed: ${BLon}%3R seconds${Boff}")
-TIMEFORMAT=$(echo -n " "; u_echo $uT_watch; j_msg -u -m "${BAon}lspci elapsed: ${BLon}%3R seconds${Boff}")
+TIMEFORMAT=$(echo -n " "; u_echo "$uT_watch"; j_msg -u -m " ${BAon}lspci elapsed: ${BLon}%3R seconds${Boff}")
 time {
 j_msg "-${notice}" -p "Finding drivers identified by lspci; please wait ..."
 # prepare to use progress bar
@@ -98,7 +98,7 @@ while IFS= read -r line; do
         # update the progress bar
         progress_inline "$((line_num++))" "$lines"
         # prep to show some extra info to the right (save pos; return left; adv to offset)
-        SCP; printf '\r'; CUF $offset
+        SCP; printf '\r'; CUF "$offset"
         # print a sample of what line is being considered
         printf '%s' "${line:0:10}"
         # clear the rest of the line and return to saved pos
@@ -162,7 +162,7 @@ result=$?
 [ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && {
     progress_inline "$lines" "$lines"   # finish progress bar at 100%
     # go up one line; clean up right of progress bar
-    CUU 1; printf '\r'; CUF $offset; EL ;
+    CUU 1; printf '\r'; CUF "$offset"; EL ;
     SCU   # restore visible cursor
     printf '\n'  # close out progress bar and go to next line
 }
@@ -174,7 +174,7 @@ handle_result $result "ingested [${#driver_map[@]}]" "" "$notice"
 # (re)establish output format for time command
 #TIMEFORMAT="${BTon}lsusb elapsed: ${BMon}%3R${BTon} seconds${Boff}"
 #TIMEFORMAT=$(j_msg -u -M $idx_sparkles "${BAon}lsusb elapsed: ${BLon}%3R seconds${Boff}")
-TIMEFORMAT=$(echo -n " "; u_echo $uT_watch; j_msg -u -m "${BAon}lsusb elapsed: ${BLon}%3R seconds${Boff}")
+TIMEFORMAT=$(echo -n " "; u_echo "$uT_watch"; j_msg -u -m " ${BAon}lsusb elapsed: ${BLon}%3R seconds${Boff}")
 time {
 j_msg "-${notice}" -p "Finding drivers identified by lsusb; please wait ..."
 # prepare to use progress bar
@@ -186,7 +186,7 @@ while IFS= read -r line; do
         # update the progress bar
         progress_inline "$((line_num++))" "$lines"
         # prep to show some extra info to the right (save pos; return left; adv to offset)
-        SCP; printf '\r'; CUF $offset
+        SCP; printf '\r'; CUF "$offset"
         # print a sample of what line is being considered
         printf '%s' "${line:0:10}"
         # clear the rest of the line and return to saved pos
@@ -229,7 +229,7 @@ result=$?
 [ ! $DEBUG ] && [ "$verbosity" -lt "$debug" ] && {
     progress_inline "$lines" "$lines"   # finish progress bar at 100%
     # go up one line; clean up right of progress bar
-    CUU 1; printf '\r'; CUF $offset; EL ;
+    CUU 1; printf '\r'; CUF "$offset"; EL ;
     SCU   # restore visible cursor
     printf '\n'  # close out progress bar and go to next line
 }
@@ -241,7 +241,7 @@ handle_result $result "ingested [${#driver_map[@]}]" "" "$notice"
 # (re)establish output format for time command
 #TIMEFORMAT="${BTon}lshw elapsed: ${BMon}%3R${BTon} seconds${Boff}"
 #TIMEFORMAT=$(j_msg -u -M $idx_sparkles "${BAon}lshw elapsed: ${BLon}%3R seconds${Boff}")
-TIMEFORMAT=$(echo -n " "; u_echo $uT_watch; j_msg -u -m "${BAon}lshw elapsed: ${BLon}%3R seconds${Boff}")
+TIMEFORMAT=$(echo -n " "; u_echo "$uT_watch"; j_msg -u -m " ${BAon}lshw elapsed: ${BLon}%3R seconds${Boff}")
 time {
 # process lshw using -json output and jq to read just what is needed
 j_msg "-${notice}" -p -n "Finding driver records in lshw output ..."
@@ -295,12 +295,12 @@ handle_result $? "sorted drivers: [${#sorted_drivers[@]}]" "" "$notice"
 
 # display accumulated data in sorted-driver order
 printf '\n'
+separator "${PN}-${BUILD}" "(Kernel Config Bridge Report)"
+printf '\n'
+j_msg "-${notice}" -mp " Verify these modules/symbols exist in your .config after running localmodconfig:\n\n"
 longest=$(get_longest "${sorted_drivers[@]}")
 j_msg "-${debug}" -p "longest: [$longest]"
 col_width=$(( longest + 2 ))
-
-j_msg "-${notice}" -p "=== KERNEL CONFIGURATION BRIDGE REPORT ==="
-j_msg "-${notice}" -mp " Verify these modules/symbols exist in your .config after running localmodconfig:\n\n"
 
 for i in "${!sorted_drivers[@]}"; do
     driver="${sorted_drivers[i]}"

@@ -10,12 +10,14 @@ if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1
 
 dns="elrond.brendler"
 user="joe"
+jobs="$(nproc)"   # concurrency limit
 
 separator "$(hostname)" "${PN}-${BUILD}"
 
 # use an indexed array to ingest all of the dns's hosts files at once
+# only get local hosts files; exclude slow piggies - likely non-ssh (port 22 off)
 declare -a lines
-readarray -t lines < <(sudo -u "$user" ssh -q "$dns" cat /etc/hosts.d/*)
+readarray -t lines < <(sudo -u "$user" ssh -q "$dns" cat /etc/hosts.d/[12]*)
 
 # use an associative array (hostnames keyed on ip addr) to thus hold both values in one array
 declare -A targets
@@ -51,7 +53,8 @@ done < <(  # substitute the process below (actual parallel scan) into the while 
         echo -e "${Mon}${ip} ${Bon}(${Boff}${Con}${host}${BBon})${Boff} is ${BGon}Up${Boff}" || \
         echo -e "${Mon}${ip} ${Bon}(${Boff}${Con}${host}${BBon})${Boff} is ${BRon}Down${Boff}" ;
       } 2>/dev/null &
-  ) ; done; wait;
+  ) ; if (( ++_jp_count % "$jobs" == 0 )); then wait -n; fi ;   # limit job concurrency
+  done; wait;   # wait to ensure parallel jobs are done
 } | sed "/^${W0}$/d"
 )
 msg="complete. ${BBon}[${BMon}$ups${BBon}] ${BGon}up${Boff} |"

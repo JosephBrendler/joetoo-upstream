@@ -1,8 +1,18 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # see news grub2 article - recommends install both with and w/o --removable
 # syntax here taken from https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Bootloader
 #
-efi_dir=$(grep '/efi' /etc/fstab | awk '{print $2}')
-[ ! -d "$efi_dir" ] && { printf '%s\n' "valid efi dir not found"; exit 1; }
-grub-install --efi-directory="${efi_dir}" --target=x86_64-efi
-grub-install --efi-directory="${efi_dir}" --target=x86_64-efi --removable
+[ "$(id -u)" -eq 0 ] || { echo "Must be root to run this script"; exit 1 ; }
+efi_dir=""
+# ignore comments, but read other lines matching either /efi or /boot/efi mountpoint into an array
+# (then if more than one, warn about ambiguity and exit)
+readarray -t efi_dirs < <(awk '$1 !~ /^#/ && ($2 == "/efi" || $2 == "/boot/efi") { print $2 }' /etc/fstab)
+[ ${#efi_dirs[@]} -eq 0 ] && { echo "error: no efi directory found"; exit 1 ; }
+[  ${#efi_dirs[@]} -gt 1 ] && { echo "ambiguous: multiple efi dirs found"; exit 1 ; }
+efi_dir="${efi_dirs[0]}"
+[ ! -d "$efi_dir" ] && { printf '%s\n' "valid efi dir not found"; exit 1 ; }
+#grub-install --efi-directory="${efi_dir}" --target=x86_64-efi
+#grub-install --efi-directory="${efi_dir}" --target=x86_64-efi --removable
