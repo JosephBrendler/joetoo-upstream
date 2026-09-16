@@ -28,7 +28,7 @@ alias     en='eix -#'  # eix names
 
 alias   tmux='LC_CTYPE=en_US.utf8 tmux'  # force tmux   to utf-8
 alias screen='screen -U'                 # force screen to utf-8
-alias   nano='LC_ALL=en_US.UTF8 nano --tabsize=2'
+alias   nano='LC_ALL=en_US.UTF8 nano --tabsize=4'
 alias     bt='LC_ALL=en_US.UTF8 btop'
 
 alias    dig='dig +search'

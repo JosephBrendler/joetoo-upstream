@@ -1,5 +1,9 @@
 #!/bin/bash
-# move_joetoo_kernels_to_webserver  - (c) joe brendler 2025-2975
+# Copyright 2009-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# move_joetoo_kernels_to_webserver
+
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   # like =$(basename $0) but w/o subshell and function call

@@ -1,14 +1,14 @@
 #!/bin/bash
 # Copyright 2009 Zucca
-# Copyright 2025-2026 Joseph Brendler
+# Copyright 2016-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # unmerge.sh - interactively select packages to remove from the Portage world set
 #
-# Originally written by Zucca and published as "umerge.sh v0.0.2b" on the
-# Gentoo Forums in 2009. Modified by Joseph Brendler for joetoolkit.
+# based on "umerge.sh v0.0.2b" posted by Zucca on Gentoo Forums in 2009;
+# modified and maintained by Joseph Brendler for joetoolkit since 2016
 #
-# Original source:
-# https://forums.gentoo.org/viewtopic-t-724325-highlight-.html
+# Original source - https://forums.gentoo.org/viewtopic-t-724325-highlight-.html
 
 UNMERGELIST=$(mktemp -t "unmerge_list_XXXXX")
 

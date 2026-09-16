@@ -1,0 +1,7 @@
+# list of package-relative file pathnames in which there should NOT be a copyright statement
+./COPYRIGHT.exceptions
+./LICENSES.package
+./joetoolkit/server_certs/Brendler_Consulting_LLC_Root_CA.crt
+./joetoolkit/server_certs/Brendler_Consulting_LLC_Intermidiate_CA.crt
+./joetoolkit/server_certs/imjoe.pem
+./joetoolkit/server_certs/imjoe.crt
