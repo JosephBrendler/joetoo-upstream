@@ -1,0 +1,117 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# git-commit-sign-message - git-commit staged changes (create local commit, signed-off and signed, with message)
+#
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+
+
+#-----[ variables ]--------------------------------------------------
+
+user="joe"   #...........................................# developer's username
+upstream_repository="/home/${user}/joetoo-upstream"   #..# upstream_repository in developer's ${HOME}
+gpg_test_file=""   #.....................................# global assignment of test file (used by cleanup hook)
+
+#-----[ functions ]--------------------------------------------------
+
+cleanup-gpg-test()
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    # just return 0 if gpg_test_file is unset or empty
+    [[ -n "$gpg_test_file" ]] || return 0
+    # remove both
+    j_msg "-${notice}" -p "Cleaning up test file and signature ..."
+    if rm -f -- "$gpg_test_file" "${gpg_test_file}.asc"; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || return 1
+    gpg_test_file=""
+    return 0
+}
+# @usage cleanup-gpg-test
+# @ret 0 - temporary gpg test artifacts absent or removed
+# @vars gpg_test_file - pathname created by mktemp
+# @rule safe for repeated invocation
+
+git-commit-sign-message()   # (BASH) git-commit staged changes (create local commit, signed-off and signed, with message)
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
+    local result=0
+    # default to set but empty message
+    local _gcsm_msg="${1:-}"
+
+    # create a unique test file to sign for this run (or fail)
+    j_msg "-${notice}" -p "Creating test file ..."
+    if gpg_test_file="$(mktemp "${TMPDIR:-/tmp}/${PN}.XXXXXX")"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to create temporary gpg test file" "$result"
+
+    # populate the test file to sign (or fail)
+    j_msg "-${notice}" -p "Populating test file ..."
+    if printf '%s\n' 'test' > "$gpg_test_file"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to populate temporary gpg test file" "$result"
+
+    # sign test file (cache signing key)(ignore smartcard error)
+    j_msg "-${notice}" -p "Signing test file ..."
+    gpg --clearsign "$gpg_test_file" > /dev/null 2>&1 || true
+
+
+    # cryptographically verify resulting clearsigned file
+    j_msg "-${notice}" -p "Verifying test file signature ..."
+    if gpg --verify "${gpg_test_file}.asc" > /dev/null 2>&1; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to verify test file signature" "$result"
+
+    # clean up the signature file to reset (or fail)
+    cleanup-gpg-test || die "failed to clean up gpg test files"
+
+    # signoff and sign the commit (or fail)
+    j_msg "-${notice}" -p "Running git commit -s -S -m ..."
+    if git commit -s -S -m "${_gcsm_msg}"; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || die "failed to commit staged changes" "$result"
+
+    return 0
+}
+# @usage git-commit-sign-message <message>
+# @note author converted alias gcsm first to a function, then to a script for clarity,
+# @append and $PN still ignores gpg --clearsign failures (primarly to avoid failing over
+# @append errors about smartcard), but $PN then cryptographically verifies the resulting
+# @append clearsigned file and treats verification failure as fatal
+# @note for git commit options --
+# @cont  -s | --signoff = add Signed-off-by line IAW GLEP-76 (DCO)
+# @cont  -S | --gpg-sign [<key-id>] = sign w gnupg signing key (or --no-gpg-sign; overrides default)
+# @note reference: https://www.kernel.org/pub/software/scm/git/docs/git-commit.html
+# @note if a repo's ./.git/config or the users /home/<user>/.gitconfig contains "gpgsign = true" in a [commit]
+# @cont block, and "signingkey = <gpg-key-id>" in a [user] block, then --gpg-sign will default
+# @cont to that and --no-gpg-sign will turn it off
+# @rule there must be staged changes to commit
+# @rule $PN must run from inside upstream_repository
+
+
+#-----[ main script ]------------------------------------------------
+checknotroot
+
+# guard - ensure one arg (message) is provided
+[ $# -ne 1 ] && { j_msg "-${err}" -p "Error: requires one arg.  Usage: $PN <message>"; exit 1 ; }
+# guard - ensure running from inside upstream_repository
+[[ "$(pwd)/" == "${upstream_repository%/}/"* ]] || \
+    { j_msg "-${err}" -p "Error: $PN must be run from inside upstream_repository [$upstream_repository]"; exit 1 ; }
+# guard - ensure there are staged changes to commit (exit 0 = no changes; 1 = staged changes exist; 2+ = error)
+if git diff --cached --quiet; then result=0; else result=$?; fi
+[ "$result" -eq 0 ] && { j_msg "-${err}" -p "Error: no staged changes to commit"; exit 1 ; }
+[ "$result" -gt 1 ] && { j_msg "-${err}" -p "Error: unable to check staged changes"; exit 1 ; }
+
+separator "$(hostname)" "${PN}-${BUILD}"
+
+# trap exit to clean up
+trap cleanup-gpg-test EXIT
+
+# also register cleanup_hook for use by die BEFORE it gets to EXIT
+register_cleanup_hook cleanup-gpg-test || die "failed to register cleanup hook"
+
+git-commit-sign-message "$1" || die "failed to git-commit-sign-message"
+
+j_msg "-${notice}" -p "Done"
