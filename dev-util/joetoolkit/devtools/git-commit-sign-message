@@ -28,7 +28,7 @@ cleanup-gpg-test()
     # just return 0 if gpg_test_file is unset or empty
     [[ -n "$gpg_test_file" ]] || return 0
     # remove both
-    j_msg "-${notice}" -p "Cleaning up test file and signature ..."
+    j_msg "-${notice}" -p -n "Cleaning up test file and signature ..."
     if rm -f -- "$gpg_test_file" "${gpg_test_file}.asc"; then result=0; else result=$?; fi
     handle_result "$result" "" "" "$notice" || return 1
     gpg_test_file=""
@@ -46,12 +46,12 @@ git-commit-sign-message()   # (BASH) git-commit staged changes (create local com
     local _gcsm_msg="${1:-}"
 
     # create a unique test file to sign for this run (or fail)
-    j_msg "-${notice}" -p "Creating test file ..."
+    j_msg "-${notice}" -p -n "Creating test file ..."
     if gpg_test_file="$(mktemp "${TMPDIR:-/tmp}/${PN}.XXXXXX")"; then result=0; else result=$?; fi
     right_status "$result" "$notice" || die "failed to create temporary gpg test file" "$result"
 
     # populate the test file to sign (or fail)
-    j_msg "-${notice}" -p "Populating test file ..."
+    j_msg "-${notice}" -p -n "Populating test file ..."
     if printf '%s\n' 'test' > "$gpg_test_file"; then result=0; else result=$?; fi
     right_status "$result" "$notice" || die "failed to populate temporary gpg test file" "$result"
 
@@ -61,7 +61,7 @@ git-commit-sign-message()   # (BASH) git-commit staged changes (create local com
 
 
     # cryptographically verify resulting clearsigned file
-    j_msg "-${notice}" -p "Verifying test file signature ..."
+    j_msg "-${notice}" -p -n "Verifying test file signature ..."
     if gpg --verify "${gpg_test_file}.asc" > /dev/null 2>&1; then result=0; else result=$?; fi
     right_status "$result" "$notice" || die "failed to verify test file signature" "$result"
 
@@ -69,7 +69,7 @@ git-commit-sign-message()   # (BASH) git-commit staged changes (create local com
     cleanup-gpg-test || die "failed to clean up gpg test files"
 
     # signoff and sign the commit (or fail)
-    j_msg "-${notice}" -p "Running git commit -s -S -m ..."
+    j_msg "-${notice}" -p -n "Running git commit -s -S -m ..."
     if git commit -s -S -m "${_gcsm_msg}"; then result=0; else result=$?; fi
     handle_result "$result" "" "" "$notice" || die "failed to commit staged changes" "$result"
 
