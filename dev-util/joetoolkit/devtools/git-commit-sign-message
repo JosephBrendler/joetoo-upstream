@@ -69,7 +69,7 @@ git-commit-sign-message()   # (BASH) git-commit staged changes (create local com
     cleanup-gpg-test || die "failed to clean up gpg test files"
 
     # signoff and sign the commit (or fail)
-    j_msg "-${notice}" -p -n "Running git commit -s -S -m ..."
+    j_msg "-${notice}" -p "Running git commit -s -S -m ..."
     if git commit -s -S -m "${_gcsm_msg}"; then result=0; else result=$?; fi
     j_msg "-${notice}" -p -n "git commit result: "
     handle_result "$result" "" "" "$notice" || die "failed to commit staged changes" "$result"
