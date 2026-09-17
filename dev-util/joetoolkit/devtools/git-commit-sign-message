@@ -97,6 +97,7 @@ checknotroot
 
 # guard - ensure one arg (message) is provided
 [ $# -ne 1 ] && { j_msg "-${err}" -p "Error: requires one arg.  Usage: $PN <message>"; exit 1 ; }
+[[ "$1" == "-h" ]] && { j_msg "-${err}" -p "Usage: $PN <message>  (requires one arg)"; exit 1 ; }
 # guard - ensure running from inside upstream_repository
 [[ "$(pwd)/" == "${upstream_repository%/}/"* ]] || \
     { j_msg "-${err}" -p "Error: $PN must be run from inside upstream_repository [$upstream_repository]"; exit 1 ; }
