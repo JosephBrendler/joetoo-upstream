@@ -4,31 +4,123 @@
 #
 # filter output of "git status" and automatically act on it
 #
-while read line
-do
-  set -- ${line}
-  case $# in
-    2 )
-      # these objects may have been added, modified, or deleted - act appropriately
-      action="$1"
-      object="$2"
-      echo "-----[ case: $# ]----------------------------" ;
-      echo -e "action: $action \t object: $object" ;
-      [ "${action}" == "deleted:" ] && git rm $object || git add $object ;
-      echo "Done with ${action} for object ${object}" ;;
-    1 )
-      # these are "untracked" objects, so add them
-      action="add-untracked"
-      object="$1"
-      echo "-----[ case: $# ]----------------------------" ;
-      echo -e "action: $action \t object: $object" ;
-      git add $object ;
-      echo "Done with ${action} for object ${object}" ;;
-    * )
-      echo "-----[ case: * ]----------------------------" ;
-      echo "Invalid line [ ${line} ]" ;
-      echo "# args: [ $# ]";
-      exit 1 ;;
-  esac
-  echo
-done <<<$(git status | grep '^[[:space:]]' | grep -v '(use')
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+
+#-----[ variables ]--------------------------------------------------
+
+declare -a changes=()   # indexed array of pending not-yet-staged changes
+
+#-----[ functions ]--------------------------------------------------
+
+read_changes()   # (Bash) read pending changes into array (git status lines begin w space and do NOT incl "(use")
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    j_msg "-${notice}" -p -n "Reading pending not-yet-staged changes into array ..."
+    if readarray -t changes < <( git status | grep "^${W1}" | grep -v '(use' ); then result=0; else result=$?; fi
+    handle_result "$result" "ingested: [${#changes[@]}]" "" "$notice" || die "failed to read pending changes into array"
+}
+
+review_changes()   # (Bash) review pending changes for subsequent commit
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    # iterate through array
+    for line in "${changes[@]}"; do
+        # set $line as positional parameters - do not quote - intentional word-split the line
+        # shellcheck disable=SC2086
+        set -- ${line}
+        case $# in
+            2 )
+                # these objects may have been added, modified, or deleted - act appropriately
+                action="$1"
+                object="$2"
+                if [ "${action}" == "deleted:" ]; then
+                    j_msg "-${notice}" -p "Pending: git rm tracked object [${BRon}${object}${Boff}]"
+                else
+                    j_msg "-${notice}" -p "Pending: git add tracked object [${BRon}${object}${Boff}]"
+                fi
+                ;;
+            1 )
+                # these are "untracked" objects, so add them
+                action="add-untracked"
+                object="$1"
+                j_msg "-${notice}" -p "Pending: git add untracked object [${BRon}${object}${Boff}]"
+                ;;
+            * )
+                j_msg "-${debug}" -p 'case: *'
+                j_msg "-${debug}" -p "Invalid line [ ${line} ]"
+                j_msg "-${debug}" -p "# args: [ $# ]"
+                die "Invalid line [ ${line} ]"
+                ;;
+        esac
+    done
+}
+
+stage_changes()   # (Bash) stage pending changes for subsequent commit
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    # iterate through array
+    for line in "${changes[@]}"; do
+        # set $line as positional parameters - do not quote - intentional word-split the line
+        # shellcheck disable=SC2086
+        set -- ${line}
+        case $# in
+            2 )
+                # these objects may have been added, modified, or deleted - act appropriately
+                action="$1"
+                object="$2"
+                j_msg "-${debug}" -p "case: $#"
+                j_msg "-${debug}" -p "action: $action \t tracked object: [$object]"
+                if [ "${action}" == "deleted:" ]; then
+                    j_msg "-${notice}" -p -n "Running git rm tracked object [$object]"
+                    if git rm "$object"; then result=0; else result=$?; fi
+                    right_status "$result" "$notice" || die "failed to git rm tracked object [$object]"
+                else
+                    j_msg "-${notice}" -p -n "Running git add tracked object [$object]"
+                    if git add "$object"; then result=0; else result=$?; fi
+                    right_status "$result" "$notice" || die "failed to git add tracked object [$object]"
+                fi
+                j_msg "-${debug}" -p "Done with action: [$action] for tracked object: [$object]"
+                ;;
+            1 )
+                # these are "untracked" objects, so add them
+                action="add-untracked"
+                object="$1"
+                j_msg "-${debug}" -p "case: $#"
+                j_msg "-${debug}" -p "action: $action \t untracked object: [$object]"
+                j_msg "-${notice}" -p -n "Running git add untracked object [$object]"
+                if git add "$object"; then result=0; else result=$?; fi
+                right_status "$result" "$notice" || die "failed to git add untracked object [$object]"
+                j_msg "-${debug}" -p "Done with action: [$action] for untracked object: [$object]"
+                ;;
+            * )
+                j_msg "-${debug}" -p 'case: *'
+                j_msg "-${debug}" -p "Invalid line [ ${line} ]"
+                j_msg "-${debug}" -p "# args: [ $# ]"
+                exit 1
+                ;;
+        esac
+    done
+}
+
+#-----[ main script ]------------------------------------------------
+checknotroot
+
+separator "$(hostname)" "${PN}-${BUILD}"
+
+read_changes || die "failed to read_changes"
+review_changes || die "failed to review_changes"
+confirm_continue_or_exit
+stage_changes || die "failed to stage_changes"
+
+separator "${PN}-${BUILD}" "(git status)"
+
+j_msg "-${notice}" -p "${BYon}$PN complete${Boff}. Subsequent ${BGon}git status${Boff} follows ..."
+git status
+printf '\n'
+

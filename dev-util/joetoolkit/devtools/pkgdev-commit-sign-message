@@ -1,0 +1,182 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# pkgdev-commit-sign-message - prepare, QA, sign and commit joetoo repository changes
+# (egencache; create local commit, signed-off and signed, with message)
+#
+# @note joetoo development workflow outline --
+# @cont (update sources)
+# @cont cd ~/joetoo-upstream/<category>/<package>/   #...........# move to package level in upstream repo
+# @cont edit files   #...........................................# make changes
+# @cont validate_scripts <category>/<package>/<script> -l   #....# check syntax/linting on just this script
+# @cont validate_scripts <category>/<package>/ -l   #............# check syntax/linting on the whole package
+# @cont cd <category>/   #.......................................# move to category level in upstream repo
+# @cont tarup <package> [-pa|-mi|-ma]   #........................# create new tarball version
+# @cont git status; big-git-rm-add-list-handler   #..............# stage changes for subsequent commit
+# @cont gcsm "message"   #.......................................# create local signed signed-off commit with message
+# @cont gpom   #.................................................# push commit to github
+# @cont (update ebuild)
+# @cont cd ~/joetoo/<category>/<package>/   #....................# move to package level in ebuild repo
+# @cont ebup . [-pa|-mi|-ma]   #.................................# create/edit new ebuild version (runs pkgdev manifest -f)
+# @cont nano metadata   #........................................# (if needed) edit metadata to match changes
+# @cont pkgdev manifest -f   #...................................# create new package-level manifest
+# @cont pkgcheck scan [<category>/<package>]   #.................# run QA check on package ebuild(s)
+# @cont git status; big-git-rm-add-list-handler   #..............# stage changes for subsequent commit
+# @cont pcsm "message"   #.......................................# create local signed signed-off commit with message
+# @cont gpom   #.................................................# push commit to github
+# @cont (update eclass)
+# @cont cd ~/joetoo/eclass/   #..................................# move to eclass dir in ebuild repo
+# @cont nano <eclass>.eclass   #.................................# create/edit eclass file
+# @cont cd ~/joetoo/   #.........................................# move to root of ebuild repo
+# @cont pkgcheck scan   #........................................# run QA check on package ebuild(s) (may be impacted by eclass)
+# @cont git status; big-git-rm-add-list-handler   #..............# stage changes for subsequent commit
+# @cont pcsm "message"   #.......................................# create local signed signed-off commit with message
+# @cont gpom   #.................................................# push commit to github
+# @note pcsm runs egencache which updates repo-level metadata for packages impacted by eclass changes.
+# @append pcsm also runs pkgdev commit --dry-run --all ...; confirm_continue_or_exit; pkgdev commit --all ...
+# @append which includes QA checks and gpg sign and signoff on the local commit it creates
+
+# @note pcsm runs egencache before committing to update repository metadata
+# @note pkgdev commit --dry-run --all --scan provides final commit-oriented QA before confirmation
+# @append the final pkgdev commit creates the signed-off and GPG-signed local commit
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+
+
+#-----[ variables ]--------------------------------------------------
+
+user="joe"   #................................# developer's username
+joetoo_repository="/home/${user}/joetoo"   #..# upstream_repository in developer's ${HOME}
+gpg_test_file=""   #..........................# global assignment of test file (used by cleanup hook)
+
+#-----[ functions ]--------------------------------------------------
+
+cleanup-gpg-test()
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    # just return 0 if gpg_test_file is unset or empty
+    [[ -n "$gpg_test_file" ]] || return 0
+    # remove both
+    j_msg "-${notice}" -p -n "Cleaning up test file and signature ..."
+    if rm -f -- "$gpg_test_file" "${gpg_test_file}.asc"; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || return 1
+    gpg_test_file=""
+    return 0
+}
+# @usage cleanup-gpg-test
+# @ret 0 - temporary gpg test artifacts absent or removed
+# @vars gpg_test_file - pathname created by mktemp
+# @rule safe for repeated invocation
+
+pkgdev-commit-sign-message() # (BASH) pkgdev-commit-sign-message - prepare, QA, sign and commit joetoo repository changes
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
+    # (egencache; create local commit, signed-off and signed, with message)
+    local result=0
+    # default to set but empty message
+    local _pcsm_msg="${1:-}"
+
+    # set up variable to assign to egencache flag --repositories-configuration=
+    local _pcsm_REPOS_CONFIG _pcsm_repoconf
+    # build content for egencache's --repositories-configuration= option
+    j_msg "-${notice}" -p -n "Creating --repositories-configuration= for egencache ..."
+    # replicate structure of gentoo entry in repos.conf
+    # **replace** joetoo entry in repos.conf (point to developer repo, not /var/db/repos/joetoo)
+    if _pcsm_repoconf=('[gentoo]' 'location = /var/db/repos/gentoo') && \
+    _pcsm_repoconf+=('[joetoo]' "location = ${joetoo_repository}") && \
+    _pcsm_REPOS_CONFIG="$(printf '%s\n%s\n\n%s\n%s\n' "${_pcsm_repoconf[@]}")"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to create --repositories-configuration= for egencache" "$result"
+
+    # run egencache with this config pointed at development repo not the one in /var/db/repos/joetoo
+    j_msg "-${notice}" -p -n "Running egencache for --repo=joetoo ..."
+    if egencache --repositories-configuration="${_pcsm_REPOS_CONFIG}" --repo=joetoo --update; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to run egencache for --repo=joetoo" "$result"
+
+    # create a unique test file to sign for this run (or fail)
+    j_msg "-${notice}" -p -n "Creating test file ..."
+    if gpg_test_file="$(mktemp "${TMPDIR:-/tmp}/${PN}.XXXXXX")"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to create temporary gpg test file" "$result"
+
+    # populate the test file to sign (or fail)
+    j_msg "-${notice}" -p -n "Populating test file ..."
+    if printf '%s\n' 'test' > "$gpg_test_file"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to populate temporary gpg test file" "$result"
+
+    # sign test file (cache signing key)(ignore smartcard error)
+    j_msg "-${notice}" -p "Signing test file ..."
+    gpg --clearsign "$gpg_test_file" > /dev/null 2>&1 || true
+
+    # cryptographically verify resulting clearsigned file
+    j_msg "-${notice}" -p -n "Verifying test file signature ..."
+    if gpg --verify "${gpg_test_file}.asc" > /dev/null 2>&1; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to verify test file signature" "$result"
+
+    # clean up the signature file to reset (or fail)
+    cleanup-gpg-test || die "failed to clean up gpg test files"
+
+    # run a pkgdev commit dry-run to verify QA and confirm to continue
+    j_msg "-${notice}" -p "Running pkgdev commit --dry-run --all --scan ..."
+    if pkgdev commit --dry-run --all --scan; then result=0; else result=$?; fi
+    j_msg "-${notice}" -p -n "pkgdev commit --dry-run result: "
+    handle_result "$result" "" "" "$notice" || die "failed to pkgdev commit --dry-run" "$result"
+    confirm_continue_or_exit
+
+    # stage changes and signoff and sign the commit (or fail)
+    j_msg "-${notice}" -p "Running pkgdev commit --all --scan --signoff --gpg-sign -m ..."
+    # use big-git-rm-add-list-handler to stage changes, but use --all to catch any egencache changes
+    if pkgdev commit --all --scan --signoff --gpg-sign -m "${_pcsm_msg}"; then result=0; else result=$?; fi
+    j_msg "-${notice}" -p -n "pkgdev commit result: "
+    handle_result "$result" "" "" "$notice" || die "failed to stage and commit changes" "$result"
+}
+# @usage pkgdev-commit-sign-message <message>
+# @args message - commit message passed to the final pkgdev commit
+# @ret 0 - commit completed successfully
+# @req run from inside the joetoo ebuild repository
+# @req appropriate package/eclass pkgcheck QA completed before invocation
+# @rule egencache runs before pkgdev commit to regenerate repository metadata
+# @rule dry-run stages all changed/new/removed files and scans staged changes before confirmation
+# @rule final commit is signed-off and GPG-signed
+# @note GPG signing capability is independently tested before pkgdev dry-run
+# @note note for pkgdev commit options --
+# @rule pcsm is prefered for eclass maintenance due to egencache/pkgdev commit (incl better metadata mgmt)
+# @cont  -a | --all     - stage all changed/new/removed files (** use this **)
+# @cont  -u | --update  - stage all changed files
+# @cont  -n | --dry-run - pretend to create commit
+# @cont  -s | --scan for QA
+# @warn  (*** caveat: for pkgdev commit, -s is NOT --signoff ***)
+# @cont  --signoff = add Signed-off-by line IAW GLEP-76 (DCO)
+# @cont  --gpg-sign (or --no-gpg-sign) passes --gpg-sign to git --commit
+# @cont  (there is no capital -S for pkgdev)
+# @note reference: https://pkgcore.github.io/pkgdev/man/pkgdev.html#id4 and man egencache
+# @note if a repo's ./.git/config or the users /home/<user>/.gitconfig contains "gpgsign = true" in a [commit]
+# @cont block, and "signingkey = <gpg-key-id>" in a [user] block, then --gpg-sign will default
+# @cont to that and --no-gpg-sign will turn it off
+
+
+#-----[ main script ]------------------------------------------------
+checknotroot
+
+# guard - ensure one arg (message) is provided
+[ $# -ne 1 ] && { j_msg "-${err}" -p "Error: requires one arg.  Usage: $PN <message>"; exit 1 ; }
+[[ "$1" == "-h" ]] && { j_msg "-${err}" -p "Usage: $PN <message>  (requires one arg)"; exit 1 ; }
+# guard - ensure running from root of ebuild repository b/c pkgdev commit --all stages changes in $PWD only
+[[ "$PWD" == "$joetoo_repository" || "$PWD" == "$joetoo_repository/"* ]] || \
+    { j_msg "-${err}" -p "Error: $PN must be run from inside joetoo_repository [$joetoo_repository]"; exit 1 ; }
+
+separator "$(hostname)" "${PN}-${BUILD}"
+
+# trap exit to clean up
+trap cleanup-gpg-test EXIT
+
+# also register cleanup_hook for use by die BEFORE it gets to EXIT
+register_cleanup_hook cleanup-gpg-test || die "failed to register cleanup hook"
+
+pkgdev-commit-sign-message "$1" || die "failed to pkgdev-commit-sign-message"
+
+j_msg "-${notice}" -p "Done"

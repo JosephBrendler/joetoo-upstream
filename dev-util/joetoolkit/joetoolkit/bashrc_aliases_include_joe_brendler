@@ -33,64 +33,10 @@ alias     bt='LC_ALL=en_US.UTF8 btop'
 
 alias    dig='dig +search'
 
-# remove pre-existing alias (which gcsm used to be) so we can use this function
-unalias gcsm 2>/dev/null
-gcsm() # (BASH) submit signed commit (follow with gpom to push)
-{   local _gcsm_msg="${1:-}"
-    echo 'test' > ~/cachetest  #.............................# create a dummy file to sign
-    gpg --clearsign ~/cachetest > /dev/null 2>&1 || true  #..# sign file w pinentry, cache the key, ignore pcscd error msg
-    [ -f ~/cachetest.asc ] || return 1   #...................# verify the file signature (.asc) was created
-    rm ~/cachetest.asc  #....................................# remove the signature to reset
-    git commit -s -S -m "${_gcsm_msg}"  #....................# signoff and sign the commit
-}
-# @usage gcsm <message>
-# @note author converted alias gcsm to a function for clarity, but this is still built
-# @append to treat gpg failure as a warning rather than a blocker
-# @note for git commit options --
-# @cont  -s | --signoff = add Signed-off-by line IAW GLEP-76 (DCO)
-# @cont  -S | --gpg-sign [<key-id>] = sign w gnupg signing key (or --no-gpg-sign; overrides default)
-# @note reference: https://www.kernel.org/pub/software/scm/git/docs/git-commit.html
-# @note if a repo's ./.git/config or the users /home/<user>/.gitconfig contains "gpgsign = true" in a [commit]
-# @cont block, and "signingkey = <gpg-key-id>" in a [user] block, then --gpg-sign will default
-# @cont to that and --no-gpg-sign will turn it off
-
-pcsm() # (BASH) submit signed commit (follow with gpom to push)
-{   local _pcsm_repo="${HOME}/joetoo"
-    [[ "$PWD" != "${_pcsm_repo}" ]] && return 1  # guard - pkgdev commit --all stages changes in $PWD only so go to repo top
-    local _pcsm_msg="${1:-}"
-    local _pcsm_REPOS_CONFIG
-    local _pcsm_repoconf=('[gentoo]' 'location = /var/db/repos/gentoo')  # replicate gentoo entry in repos.conf
-    _pcsm_repoconf+=('[joetoo]' "location = ${_pcsm_repo}")   #.........# **replace** joetoo entry in repos.conf
-    # build content for egencache's --repositories-configuration= option
-    _pcsm_REPOS_CONFIG="$(printf '%s\n%s\n\n%s\n%s\n' "${_pcsm_repoconf[@]}")"
-    # run egencache with this config pointed at development repo not the one in /var/db/repos/joetoo
-    egencache --repositories-configuration="${_pcsm_REPOS_CONFIG}" --repo=joetoo --update || return 2
-    echo 'test' > ~/cachetest  #.............................# create a dummy file to sign
-    gpg --clearsign ~/cachetest > /dev/null 2>&1 || true  #..# sign file w pinentry, cache the key, ignore pcscd error msg
-    [ -f ~/cachetest.asc ] || return 4   #...................# verify the file signature (.asc) was created
-    rm ~/cachetest.asc  #....................................# remove the signature to reset
-    # stage changes, signoff and commit with signature
-    if ! pkgdev commit --all --scan --signoff --gpg-sign -m "${_pcsm_msg}" ; then return 8; fi
-}
-# @usage pcsm <message>
-# @ret 0 on success; non-zero on failure
-# @cont bit 0 (1) - run from wrong directory (pkgdev --all stages changes in $PWD)
-# @cont bit 1 (2) - egencache failed
-# @cont bit 2 (4) - gpg --clearsign did not create cachetest.asc
-# @cont bit 3 (8) - pkgdev commit failed
-# @note note for pkgdev commit options --
-# @rule pcsm is prefered for eclass maintenance due to egencache/pkgdev commit (incl better metadata mgmt)
-# @cont  -a | --all stage all changed/new/removed files
-# @cont  -s | --scan for QA
-# @warn  (*** caveat: for pkgdev commit, -s is NOT --signoff ***)
-# @cont  --signoff = add Signed-off-by line IAW GLEP-76 (DCO)
-# @cont  --gpg-sign (or --no-gpg-sign) passes --gpg-sign to git --commit
-# @cont  (there is no capital -S for pkgdev)
-# @note reference: https://pkgcore.github.io/pkgdev/man/pkgdev.html#id4 and man egencache
-# @note if a repo's ./.git/config or the users /home/<user>/.gitconfig contains "gpgsign = true" in a [commit]
-# @cont block, and "signingkey = <gpg-key-id>" in a [user] block, then --gpg-sign will default
-# @cont to that and --no-gpg-sign will turn it off
-
+# move former alias gcsm to devtools script
+alias   gcsm='/usr/sbin/git-commit-sign-message'
+# move former alias pcsm to devtools script
+alias   pcsm='/usr/sbin/pkgdev-commit-sign-message'
 alias   gpom='git push origin master'
 
 alias     qm='qemu-image-mount'

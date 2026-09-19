@@ -2,11 +2,12 @@
 # Copyright 2025-2026 Joseph Brendler
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# shellcheck source=/usr/sbin/script_header_joetoo
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   # basename
 
-[ -z "$verbosity" ] && verbosity=$notice
+[ -z "$verbosity" ] && verbosity="$notice"
 
 PRETEND=$TRUE
 FLAGGED=$FALSE
@@ -21,31 +22,43 @@ varlist="${varlist} bool.handle_local_usage_EXISTS"
 varlist="${varlist} rlv.local_cmdline_arg_handler"
 varlist+=" BREAK user group"
 
+# initialize - override with config sourced by app_configure
+target_line_text=""
+before_after=""
+group=""
+user=""
+target_folder=""
+target_file_list=""
 
 command_sequence=(
 'batch_edit_target_files'
 )
 
+# ignore shellcheck inability to see where this is used
+# shellcheck disable=SC2034
 msg1_sequence=(
 'batch edit target files'
 )
 
 num_cmds=${#command_sequence[@]}
+
 #-----[ functions ]-----------------------------------------------------
 re_initialize_variables() {
     j_msg "-${notice}" -p "re-initializing variables"
 
     #reinitialize and verbosity as above
     FLAGGED=$FALSE
-    j_msg "-${info}" -p -n "assigning PN = $(basename $0) "
-    export PN=${0##*/}
+    j_msg "-${info}" -p -n "assigning PN = ${0##*/}"
+    export PN="${0##*/}"
     right_status $? "${info}" || FLAGGED=$TRUE
 
     j_msg "-${info}" -p -n "sourcing BUILD"
+    # shellcheck source=/etc/insert_into_file/BUILD
     source "/etc/${PN}/BUILD"
     right_status $? "${info}" || FLAGGED=$TRUE
 
     j_msg "-${info}" -p -n "sourcing BPN"
+    # shellcheck source=/etc/insert_into_file/BPN
     source "/etc/${PN}/BPN"
     right_status $? "${info}" || FLAGGED=$TRUE
 
@@ -83,8 +96,8 @@ re_initialize_variables() {
 display_config() {
   echo
   j_msg "-${notice}" -p "${BYon}Current Configuration --${Boff}"
-  longest=$(get_longest ${varlist})
-  display_vars ${longest} ${varlist}
+  longest=$(get_longest "${varlist}")
+  display_vars "${longest}" "${varlist}"
   echo
   separator "${BYon}Content of insert_file [${insert_file}]" "(below)"
   cat "${insert_file}"
@@ -93,10 +106,12 @@ display_config() {
   return 0
 }
 
+# ignore shellcheck inability to see where this is used
+# shellcheck disable=SC2329
 do_insert() {
     j_msg "-${debug}" -p " running do_insert with input from [ ${insert_file} ]"
     insert_file="${1}"
-    while read linein
+    while read -r linein
     do
 #      if [ ! -z "${linein}" ] ; then
         j_msg "-${debug}" -p "  inserting [ ${linein} ]"
@@ -106,10 +121,13 @@ do_insert() {
     return 0
 }
 
+
+# ignore shellcheck inability to see where this is used
+# shellcheck disable=SC2329
 read_input_and_edit_output() {
     # read input from file specified in arg1
     in_file="$1"
-    while read line
+    while read -r line
     do
         # if line is not null and it matches tartet text, then insert before/after
         if [ ! -z "${line}" ] && [ "${line}" == "${target_line_text}" ] ; then
@@ -119,11 +137,13 @@ read_input_and_edit_output() {
                     j_msg "-${debug}" -p "adding insert to output array"
                     do_insert "${insert_file}"
                     j_msg "-${debug}" -p "adding original line [ ${line} ] to output array"
-                    output+=("$(echo "${line}")")
+#                    output+=("$(echo "${line}")")
+                    output+=("$line")
                   ;;
                 "after"  )
                     j_msg "-${debug}" -p "adding original line [ ${line} ] to output array"
-                    output+=("$(echo "${line}")")
+#                    output+=("$(echo "${line}")")
+                    output+=("$line")
                     j_msg "-${debug}" -p "adding insert to output array"
                     do_insert "${insert_file}"
                   ;;
@@ -132,7 +152,8 @@ read_input_and_edit_output() {
         else
             # this is not the target line, so just add it back into the output array
             j_msg "-${debug}" -p "adding line [ ${line} ] to output array"
-            output+=("$(echo "${line}")")
+#            output+=("$(echo "${line}")")
+            output+=("$line")
         fi
     done < "${in_file}"
     return 0
@@ -143,8 +164,8 @@ sanity_check() {
     [ $# -gt 1 ] && j_msg "-${err}" "too many arguments [$#]" && usage
     [ ${#user} -eq 0 ] && j_msg "-${err}" "user: [ ${user} ] null" && usage
     [ ${#group} -eq 0 ] && j_msg "-${err}" "group: [ ${group} ] null" && usage
-    [ ${#user} -gt 0 ] && [[ ! $(grep ${user} /etc/shadow) ]] && j_msg "-${err}" "user: [ ${user} ] not found" && usage
-    [ ${#group} -gt 0 ] && [[ ! $(grep ${group} /etc/gshadow) ]] && j_msg "-${err}" "group: [ ${group} ] not found" && usage
+    [ ${#user} -gt 0 ] && ! grep -q "${user}" /etc/shadow && j_msg "-${err}" "user: [ ${user} ] not found" && usage
+    [ ${#group} -gt 0 ] && ! grep -q "${group}" /etc/gshadow && j_msg "-${err}" "group: [ ${group} ] not found" && usage
     [ ! -e "${target_folder}" ] && j_msg "-${err}" "target_folder [ ${target_folder} ] does not exist" && usage
     [ ! -e "${insert_file}" ] && j_msg "-${err}" "insert_file [ ${insert_file} ] does not exist" && usage
     [ ${#target_file_list} -eq 0 ] && j_msg "-${err}" "target_file_list [ ${target_file_list} ] null" && usage
@@ -153,6 +174,8 @@ sanity_check() {
     return 0
 }
 
+# ignore shellcheck inability to see where this is used
+# shellcheck disable=SC2329
 dump_output() {
     for ((i=0; i<${#output[@]}; i++)) ; do
         echo "$i: ${output[$i]}"
@@ -160,20 +183,26 @@ dump_output() {
     return 0
 }
 
+# ignore shellcheck inability to see where this is used
+# shellcheck disable=SC2329
 write_output() {
     out_file="${1}"
     j_msg "-${info}" -p -n "writing output to ${out_file} ..."
     echo "" > "${out_file}"
-    for ((i=0; i<=${#output[@]}; i++))
-    do
+    for ((i=0; i<=${#output[@]}; i++)); do
         echo "${output[i]}" >> "${out_file}"
     done ; right_status $? "${info}"
     j_msg "-${info}" -p -n "setting ownership with chown ${user}:${group} ${out_file} ..."
     chown "${user}:${group}" "${out_file}" ; right_status $? "${info}"
 }
 
+# ignore shellcheck inability to see where this is used
+# shellcheck disable=SC2329
 batch_edit_target_files() {
-    for filename in $(find "${target_folder%/}/" -name "${target_file_list}") ; do
+    # read array first to avoid fragile loop over find results; use /0 null delimiter just in case
+    mapfile -d '' -t target_files < <(find "${target_folder%/}/" -name "${target_file_list}"  -print0)
+#    for filename in $(find "${target_folder%/}/" -name "${target_file_list}") ; do
+    for filename in "${target_files[@]}" ; do
         # reinitialize output array
         output=()
         separator "${PN}-${BUILD}" "(${FUNCNAME[0]})"
@@ -181,13 +210,13 @@ batch_edit_target_files() {
         j_msg "-${info}" -p "target_file: [ ${target_file} ]"
         read_input_and_edit_output "${target_file}"
         d_do dump_output "${info}"
-        if [ ! ${PRETEND} ] ; then
+        if [ ! "${PRETEND}" ] ; then
             # do it for real
             write_output "${target_file}"
             # if the first line is now blank, remove it
-            while [ -z "$(head -n 1 $target_file)" ]; do sed -i '1{/^$/d}' "$target_file" ; done
+            while [ -z "$(head -n 1 "$target_file")" ]; do sed -i '1{/^$/d}' "$target_file" ; done
             # if the last line is now blank, remove it
-            while [ -z "$(tail -n 1 $filename)" ]; do sed -i '${/^[[:space:]]*$/d;}' "$filename" ; done
+            while [ -z "$(tail -n 1 "$filename")" ]; do sed -i '${/^[[:space:]]*$/d;}' "$filename" ; done
         else
             j_msg "-${notice}" -p "${BRon}PRETEND${Boff} -- ${BYon}did not write output${Boff}"
         fi
@@ -209,9 +238,9 @@ separator "$(hostname)" "${PN}-${BUILD}"
 validate_file "${cmdseq_statusfile}" || die "failed validate_status_file"
 
 # call script_header_joetoo's process command line to override config
-process_cmdline $@
+process_cmdline "$@"
 
-sanity_check || die "failed sanity_check"
+sanity_check "$@" || die "failed sanity_check"
 display_config || die "failed display_config"
 
 # ok - use script_header_joetoo_extended's run_array now actually do it

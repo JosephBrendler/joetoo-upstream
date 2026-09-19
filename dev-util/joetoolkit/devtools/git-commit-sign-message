@@ -59,7 +59,6 @@ git-commit-sign-message()   # (BASH) git-commit staged changes (create local com
     j_msg "-${notice}" -p "Signing test file ..."
     gpg --clearsign "$gpg_test_file" > /dev/null 2>&1 || true
 
-
     # cryptographically verify resulting clearsigned file
     j_msg "-${notice}" -p -n "Verifying test file signature ..."
     if gpg --verify "${gpg_test_file}.asc" > /dev/null 2>&1; then result=0; else result=$?; fi

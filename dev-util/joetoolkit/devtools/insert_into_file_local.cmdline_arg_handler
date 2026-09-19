@@ -14,17 +14,17 @@
 
 handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_header_joetoo
 { hla_ret=0; _hla_arg="$1"; _hla_operand="$2"
-  j_msg -${debug} -p "in handle_local_arg with _hla_arg: [$_hla_arg], _hla_operand: [$_hla_operand]"
+  j_msg "-${info}" -p "in handle_local_arg with _hla_arg: [$_hla_arg], _hla_operand: [$_hla_operand]"
   case "$_hla_arg" in
     "-"[pP] | "--pretend"  )
       # example 1
       export PRETEND=${TRUE}; hla_ret=$?
-      j_msg -${info} -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      j_msg "-${debug}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
       ;;
     "-"[wW] | "--write" )
       # example 2
       export PRETEND=${FALSE}; hla_ret=$?
-      j_msg -${info} -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
       ;;
 #    "-"[oO] | "--output" )   # example for handling argument to option
 #      # myOperand is a global variable, assigned here
@@ -34,7 +34,7 @@ handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_
 #        0 ) hla_ret=6 ;;  # success; signal to parent script to "shift 2"
 #        * ) j_msg -${err} "error assigning myOperand; exit status: [$_hla_result]"; hla_ret=1 ;;
 #      esac
-#      j_msg -${notice} -p "assigned myOperand: $_hla_operand"
+#      j_msg "-${notice}" -p "assigned myOperand: $_hla_operand"
 #      ;;
     * )
       # NOTICE: getting here does not mean error - it just means no single flag option matched,
@@ -43,7 +43,7 @@ handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_
       hla_ret=7 # not found
       ;;
   esac
-  j_msg -${debug} -p "handle_local_arg complete, returning [$hla_ret]"
+  j_msg "-${debug}" -p "handle_local_arg complete, returning [$hla_ret]"
   unset -v _hla_arg _hla_operand _hla_result
   return $hla_ret
 }
@@ -57,17 +57,17 @@ handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_
 handle_local_compound_arg() # (POSIX) local compound arg handler to extend cli in script_header_joetoo
 { hlca_ret=0; _hlca_char="$1" # Get the first character of the parent's _pca_args directly as $1 now
 #{ hlca_ret=0; _hlca_char="${_pca_args%${_pca_args#?}}" # Get the first character of _pca_args
-  j_msg -${debug} -p "in handle_local_compound_arg with _pca_args: [$_pca_args], _hlca_char: [$_hlca_char]"
+  j_msg "-${debug}" -p "in handle_local_compound_arg with _pca_args: [$_pca_args], _hlca_char: [$_hlca_char]"
   case "$_hlca_char" in
     [pP] )
       # example 1
       export PRETEND=${TRUE}; hlca_ret=$?
-      j_msg -${info} -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
       ;;
     [wW] )
       # example 2
       export PRETEND=${FALSE}; hlca_ret=$?
-      j_msg -${info} -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
       ;;
     *    )
       # NOTICE: getting here does not mean error - it just means no single flag option matched,
@@ -76,7 +76,7 @@ handle_local_compound_arg() # (POSIX) local compound arg handler to extend cli i
       hlca_ret=7 # not found
       ;;
   esac
-  j_msg -${debug} -p "handle_local_compound_arg complete, returning [$hlca_ret]"
+  j_msg "-${debug}" -p "handle_local_compound_arg complete, returning [$hlca_ret]"
   unset -v _hlca_char
   return $hlca_ret
 }
@@ -88,27 +88,27 @@ handle_local_compound_arg() # (POSIX) local compound arg handler to extend cli i
 
 handle_local_usage() # (POSIX) local usage module to extend cli in script_header_joetoo
 {
-j_msg -${notice} -m
-j_msg -${notice} -p "${BYon} additional options --${Boff}"
-j_msg -${notice} -m "  -p | --pretend ..........: do not write output to file (default)"
-j_msg -${notice} -m "  -w | --write ............: do write output to file"
-j_msg -${notice} -p "${BYon}  Note: -N (un-supervised) and -r (resume) are disabled for ${PN}${Boff}"
-j_msg -${notice} -m ""
-j_msg -${notice} -p "${BYon}No other arguments are allowed - specify configuration${Boff}"
-j_msg -${notice} -p "  ${BYon}in confg file /etc/${PN}/${PN}.conf${Boff}"
-j_msg -${notice} -m "    target_folder......: path to folder containing target(s)"
-j_msg -${notice} -m "    target_file_list...: name of target file(s). e.g. *.conf"
-j_msg -${notice} -m "    target_line_text...: text of line before/after which to insert"
-j_msg -${notice} -m "    insert_file........: pathname of file with content to insert"
-j_msg -${notice} -m "    before_after.......: \"before\" or \"after\" (default=after)"
-j_msg -${notice} -m "    owner..............: target file owner. e.g. \"joe\""
-j_msg -${notice} -m "    group..............: target file group. e.g. \"joe\""
-j_msg -${notice} -m "    verbosity..........: (0-6) how verbose"
-j_msg -${notice} -m ""
-j_msg -${notice} -p "  ${Mon}Note:${Boff}"
-j_msg -${notice} -m "    ${Mon} user and group must exist${Boff}"
-j_msg -${notice} -m "    ${Mon} target_folder and insert_file must exist${Boff}"
-j_msg -${notice} -m "    ${Mon} target_file_list and target_line_text cannot be null${Boff}"
+j_msg "-${notice}" -m
+j_msg "-${notice}" -p "${BYon} additional options --${Boff}"
+j_msg "-${notice}" -m "  -p | --pretend ..........: do not write output to file (default)"
+j_msg "-${notice}" -m "  -w | --write ............: do write output to file"
+j_msg "-${notice}" -p "${BYon}  Note: -N (un-supervised) and -r (resume) are disabled for ${PN}${Boff}"
+j_msg "-${notice}" -m ""
+j_msg "-${notice}" -p "${BYon}No other arguments are allowed - specify configuration${Boff}"
+j_msg "-${notice}" -p "  ${BYon}in confg file /etc/${PN}/${PN}.conf${Boff}"
+j_msg "-${notice}" -m "    target_folder......: path to folder containing target(s)"
+j_msg "-${notice}" -m "    target_file_list...: name of target file(s). e.g. *.conf"
+j_msg "-${notice}" -m "    target_line_text...: text of line before/after which to insert"
+j_msg "-${notice}" -m "    insert_file........: pathname of file with content to insert"
+j_msg "-${notice}" -m "    before_after.......: \"before\" or \"after\" (default=after)"
+j_msg "-${notice}" -m "    owner..............: target file owner. e.g. \"joe\""
+j_msg "-${notice}" -m "    group..............: target file group. e.g. \"joe\""
+j_msg "-${notice}" -m "    verbosity..........: (0-6) how verbose"
+j_msg "-${notice}" -m ""
+j_msg "-${notice}" -p "  ${Mon}Note:${Boff}"
+j_msg "-${notice}" -m "    ${Mon} user and group must exist${Boff}"
+j_msg "-${notice}" -m "    ${Mon} target_folder and insert_file must exist${Boff}"
+j_msg "-${notice}" -m "    ${Mon} target_file_list and target_line_text cannot be null${Boff}"
 }
 # @usage handle_local_usage  (called from usage() in script_header_joetoo)
 # @rule user-script specific usage-module which should be built in joetoo format
