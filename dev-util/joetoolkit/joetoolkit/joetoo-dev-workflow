@@ -1,0 +1,53 @@
+#!/bin/sh
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# joetoo-locale-verify: validates baseline locale configuration
+#
+
+. /usr/sbin/script_header_joetoo
+
+PN=${0##*/}     # basename
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+separator "$(hostname)" "${PN}-${BUILD}"
+
+printf '\n'
+j_msg "-${notice}" -m "${BWon}(update sources)${Boff}"
+j_msg "-${notice}" -m "${BBon}cd${Boff} ~/joetoo-upstream/<category>/<package>/   ${Boff}${Con}#...........# move to package level in upstream repo${Boff}"
+j_msg "-${notice}" -m "edit files   ${Boff}${Con}#...........................................# make changes${Boff}"
+j_msg "-${notice}" -m "${BGon}validate_scripts${Boff} <category>/<package>/<script> -l   ${Boff}${Con}#....# check syntax/linting on just this script${Boff}"
+j_msg "-${notice}" -m "${BGon}validate_scripts${Boff} <category>/<package>/ -l   ${Boff}${Con}#............# check syntax/linting on the whole package${Boff}"
+j_msg "-${notice}" -m "${BBon}cd${Boff} <category>/   ${Boff}${Con}#.......................................# move to category level in upstream repo${Boff}"
+j_msg "-${notice}" -m "${BGon}tarup${Boff} <package> [-pa|-mi|-ma]   ${Boff}${Con}#........................# create new tarball version${Boff}"
+j_msg "-${notice}" -m "${BBon}git${Boff} status; ${BGon}big-git-rm-add-list-handler${Boff}   ${Boff}${Con}#..............# stage changes for subsequent commit${Boff}"
+j_msg "-${notice}" -m "${BGon}gcsm ${Boff}'message'   ${Boff}${Con}#.......................................# create local signed signed-off commit with message${Boff}"
+j_msg "-${notice}" -m "${BGon}gpom   ${Boff}${Con}#.................................................# push commit to github${Boff}"
+printf '\n'
+j_msg "-${notice}" -m "${BWon}(update ebuild)${Boff}${Boff}"
+j_msg "-${notice}" -m "${BBon}cd$ ${Boff}~/joetoo/<category>/<package>/   ${Boff}${Con}#....................# move to package level in ebuild repo${Boff}"
+j_msg "-${notice}" -m "${BGon}ebup${Boff} . [-pa|-mi|-ma]   ${Boff}${Con}#.................................# create/edit new ebuild version${Boff}"
+j_msg "-${notice}" -m "${BBon}nano ${Boff}metadata   ${Boff}${Con}#........................................# (if needed) edit metadata to match changes${Boff}"
+j_msg "-${notice}" -m "${BBon}pkgdev manifest${BMon} -f   ${Boff}${Con}#...................................# create new package-level manifest${Boff}"
+j_msg "-${notice}" -m "${BBon}pkgcheck scan ${Boff}[<category>/<package>]   ${Boff}${Con}#.................# run QA check on package ebuild(s)${Boff}"
+j_msg "-${notice}" -m "${BBon}git${Boff} status; ${BGon}big-git-rm-add-list-handler   ${Boff}${Con}#..............# stage changes for subsequent commit${Boff}"
+j_msg "-${notice}" -m "${BBon}pcsm ${Boff}'message'   ${Boff}${Con}#.......................................# create local signed signed-off commit with message${Boff}"
+j_msg "-${notice}" -m "${BBon}gpom   ${Boff}${Con}#.................................................# push commit to github${Boff}"
+printf '\n'
+j_msg "-${notice}" -m "${BWon}(update eclass)${Boff}${Boff}"
+j_msg "-${notice}" -m "${BBon}cd ${Boff}~/joetoo/eclass/   ${Boff}${Con}#..................................# move to eclass dir in ebuild repo${Boff}"
+j_msg "-${notice}" -m "${BBon}nano ${Boff}<eclass>.eclass   ${Boff}${Con}#.................................# create/edit eclass file${Boff}"
+j_msg "-${notice}" -m "${BBon}cd ${Boff}~/joetoo/   ${Boff}${Con}#.........................................# move to root of ebuild repo${Boff}"
+j_msg "-${notice}" -m "${BBon}pkgcheck scan   ${Boff}${Con}#........................................# run QA check on package ebuild(s)${Boff}"
+j_msg "-${notice}" -m "${BBon}git status${Boff}; ${BGon}big-git-rm-add-list-handler   ${Boff}${Con}#..............# stage changes for subsequent commit${Boff}"
+j_msg "-${notice}" -m "${BGon}pcsm ${Boff}'message'   ${Boff}${Con}#.......................................# create local signed signed-off commit with message${Boff}"
+j_msg "-${notice}" -m "${BGon}gpom   ${Boff}${Con}#.................................................# push commit to github${Boff}"
+printf '\n'
+j_msg "-${notice}" -p "${BYon}Note --${Boff}"
+j_msg "-${notice}" -m "pcsm runs egencache which updates repo-level metadata for packages impacted by eclass changes.${Boff}"
+j_msg "-${notice}" -m "pcsm also runs pkgdev commit --dry-run --all ...; confirm_continue_or_exit; pkgdev commit --all ...${Boff}"
+j_msg "-${notice}" -m "which includes QA checks and gpg sign and signoff on the local commit it creates${Boff}"
+j_msg "-${notice}" -p "pcsm runs egencache before committing to update repository metadata${Boff}"
+j_msg "-${notice}" -p "pkgdev commit --dry-run --all --scan provides final commit-oriented QA before confirmation${Boff}"
+j_msg "-${notice}" -m "the final pkgdev commit creates the signed-off and GPG-signed local commit${Boff}"

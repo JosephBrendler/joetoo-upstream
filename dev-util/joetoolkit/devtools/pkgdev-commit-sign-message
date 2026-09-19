@@ -98,6 +98,15 @@ pkgdev-commit-sign-message() # (BASH) pkgdev-commit-sign-message - prepare, QA, 
     if egencache --repositories-configuration="${_pcsm_REPOS_CONFIG}" --repo=joetoo --update; then result=0; else result=$?; fi
     right_status "$result" "$notice" || die "failed to run egencache for --repo=joetoo" "$result"
 
+    # check for unstaged changes and deal with them
+    j_msg "-${notice}" -p -n "Checking for unstaged changes ..."
+    # check the actual output, not just exit status; set negative result = 1 not $? to placate shellcheck
+    if [[ -n "$(git ls-files --deleted --modified --others --exclude-standard)" ]]; then result=0; else result=1; fi
+    handle_result "$result" "no unstaged changes found; result [$result]" \
+        "unstaged changes found; result [$result]" "$notice" || \
+        big-git-rm-add-list-handler
+    confirm_continue_or_exit
+
     # create a unique test file to sign for this run (or fail)
     j_msg "-${notice}" -p -n "Creating test file ..."
     if gpg_test_file="$(mktemp "${TMPDIR:-/tmp}/${PN}.XXXXXX")"; then result=0; else result=$?; fi
