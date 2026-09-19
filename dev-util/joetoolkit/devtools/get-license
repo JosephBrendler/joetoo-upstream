@@ -1,0 +1,217 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# get-license - get the authoritative text of a SPDX license
+
+# shellcheck source=/usr/sbin/script_header_joetoo
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
+
+#-----[ variables ]--------------------------------------------------
+user="joe"
+sources_repository="/home/${user}/joetoo-upstream"
+editor="/bin/nano"
+tmp=""   #..............# initialize for name of tempfile in which to receive download (assigned with mktmp below)
+licenseID=""   #........# initialize for license name (assigned from $1 below)
+declare -a results=()   # initialize for pipline results (assigned from ${PIPESTATUS[@]} below)
+logFIle="/var/log/${PN}.log"
+
+varlist="PN BUILD user rlv.logFile rlv.sources_repository licenseID bool.INTERACTIVE bool.DEBUG bool.LOGGING"
+
+#-----[ functions ]--------------------------------------------------
+
+cleanup-tempfile() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    # protect against accidental corruption of tmp
+    case "$tmp" in
+        /tmp/tmp.*) ;;   #........# this is ok to clean up
+        ""        ) return 0 ;;   # this is nothing to clean up
+        *         ) j_msg "-${err}" -p "refusing to remove unexpected tempfile [$tmp]"; return 1 ;;
+    esac
+    # cleanly remove tempfile
+    if [ -f "$tmp" ]; then
+        j_msg "-${notice}" -p -n "Cleaning up tempfile [$tmp] ..."
+        if rm -f -- "$tmp" 2>/dev/null; then result=0; else result=1; fi
+        right_status $result || return 2
+        tmp=""
+    else
+         j_msg "-${err}" -p "temp file [$tmp] not found; aborting cleanup"
+         return 1
+    fi
+}
+# @usage cleanup-tempfile
+# @ret 0 - tempfile removed, or no tempfile is named by tmp
+# @ret 1 - tmp does not identify an existing file
+# @ret 2 - rm failed to remove an otherwise valid tempfile
+# @deps j_msg
+# @vars tmp - tempfile pathname; cleared after successful removal
+# @rule only removes tmp values matching /tmp/tmp.*
+# @note safe for repeated invocation, including cleanup hooks and EXIT trap
+
+usage() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${err}" -p "${BGon}usage: ${PN} <licenseID>"
+    j_msg "-${notice}" -p "${BYon}Notes:${Boff}"
+    j_msg "-${notice}" -m "   ${Con}licenseID must be a valid SPDX license ID${Boff}"
+    j_msg "-${notice}" -m "   ${Con}Reference: https://spdx.org/licenses/${Boff}"
+    exit 1
+}
+
+get_valid_spdx() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # read into and array the official list of SPDX License Identifiers
+    local spdx_json=""
+    local spdx_version=""
+    local result=0
+
+    j_msg "-${notice}" -p -n "retrieving current SPDX License List ..."
+    # use curl to read in the json file on the official site; flags --
+    #    -f = fail on server errors
+    #    -s = silent mode
+    #    -S = show errors when used with -s
+    #    -L = location (follow redirects)
+    if spdx_json="$( curl -fsSL https://spdx.org/licenses/licenses.json )"; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "${notice}" || die "failed to retrieve current SPDX License List"
+
+    j_msg "-${notice}" -p -n "Creating array of VALID_SPDX License IDs from list ..."
+    # use jq to read license IDs
+    if readarray -t VALID_SPDX < <(
+        # use jq to parse the json data .licenses field
+        # select those marked as licenseId but not isDeprecated...
+        jq -r '.licenses[]
+        | select(.isDeprecatedLicenseId == false)
+        | .licenseId' <<< "$spdx_json"
+    ); then result=0; else result=$?; fi
+    handle_result "$result" "ingested: [${#VALID_SPDX[@]}]" "" "${notice}" || \
+        die "failed to create array of VALID_SPDX License IDs"
+
+    #  readarray -t VALID_SPDX < <( curl -fsSL https://spdx.org/licenses/licenses.json |
+    #     jq -r '.licenses[] | select(.isDeprecatedLicenseId == false) |
+    #     .licenseId' )  ==> echo "${#VALID_SPDX[@]}" ==> 695 // as of 20260831
+    # validate ingested array "sanity"
+    [ "${#VALID_SPDX[@]}" -gt 750 ] && \
+        die "retrieved SPDX License List appears invalid (too big) [${#VALID_SPDX[@]} identifiers]"
+    [ "${#VALID_SPDX[@]}" -lt 1 ] && \
+        die "retrieved SPDX License List appears incomplete [${#VALID_SPDX[@]} identifiers]"
+
+    j_msg "-${notice}" -p -n "Checking version of SPDX List ..."
+    if spdx_version="$( jq -r '.licenseListVersion' <<< "$spdx_json" )"; then result=0; else result=$?; fi
+    handle_result "$result" "${spdx_version}" "" "${notice}" || die "failed to get SPDX List version"
+
+}
+# @usage get_valid_spdx
+# @ret 0 - current SPDX license identifiers retrieved and validated
+# @deps curl jq readarray handle_result j_msg
+# @vars VALID_SPDX
+# @req network access to the official SPDX license-list endpoint
+# @rule deprecated SPDX License Identifiers are excluded
+# @rule retrieved identifier count must be between 1 and 750
+
+is_valid_spdx() {
+    j_msg "-${debug}" -mp ""   # for debug return for prior j_msg -n
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with args [$*]"
+    # determine if a candidate licence identifier is a valid SPDX Licence Identifier
+    local candidate="$1"
+
+    # valid SPDX License Identifier can include only alphanumeric or . + - chars
+    [[ "$candidate" =~ ^[[:alnum:].+-]+$ ]] || return 1
+
+    # use case to see if candidate is in the current list
+    case " ${VALID_SPDX[*]} " in
+        *" ${candidate} "*) return 0 ;;  # valid
+    esac
+
+    return 1
+}
+# @usage is_valid_spdx <candidate>
+# @args $1 candidate SPDX License Identifier
+# @ret 0 - candidate is syntactically valid and present in VALID_SPDX
+# @ret 1 - candidate is malformed or absent from VALID_SPDX
+# @vars VALID_SPDX
+# @req VALID_SPDX must already contain the current accepted identifier list
+
+#-----[ main script ]------------------------------------------------
+checknotroot
+# use script_header_joetoo _CLEANUP_HOOKS to enable die() to do this BEFORE issuing EXIT signal
+# so normal error handling runs cleanup-tempfile w/o trap
+register_cleanup_hook cleanup-tempfile ||
+    die "failed to register cleanup-tempfile hook"
+# ensure temp file gets removed in unhandled errors leading to EXIT
+trap cleanup-tempfile EXIT
+
+separator "$(hostname)" "${PN}-${BUILD}"
+
+# guards (need $1 = valid licenseID)
+[ $# -eq 0 ] && { j_msg "-${err}" -p "licenseID not specified" ; usage ; }
+[ $# -gt 1 ] && { j_msg "-${err}" -p "invalid arguments" ; usage ; }
+
+#licenseID=GPL-2.0-or-later
+licenseID="$1"
+
+# validate licenseID
+j_msg "-${notice}" -p "Validating licenseID [$licenseID] ..."
+get_valid_spdx || die "failed to get_valid_spdx"
+if is_valid_spdx "$licenseID"; then result=0; else result=$?; fi
+j_msg "-${notice}" -p -n "licenseID [$licenseID] is:"
+handle_result "$result" "valid" "invalid" "$notice" || die "failed to validate licenseID" "$result"
+
+# make temp file to hold download
+j_msg "-${notice}" -p -n "Making temp file to hold license download ..."
+if tmp="$(mktemp)";  then result=0; else result=$?; fi
+right_status "$result" "$notice" || die "failed to make temp file for download" "$result"
+
+# download license identified by licenseID
+j_msg "-${notice}" -p -n "Downloading license json and extracting text ..."
+set -o pipefail
+# MANPAGER=cat man curl | grep -E ' -f,| -s,| -S,| -L,'
+#  -f, --fail on server errors
+#  -L, --location (follow redirects)
+#  -S, --show-error when used with -s
+#  -s, --silent mode
+# jq --help | grep -E ' -e,| -r,'
+#  -r, --raw-output  - output strings without escapes and quotes
+#  -e, --exit-status - set exit status code based on the output
+#  --arg name value  - set $name to the string value
+if curl -fsSL "https://spdx.org/licenses/${licenseID}.json" | \
+    jq -er --arg id "$licenseID"  'select(.licenseId == $id) | .licenseText' > "$tmp";  then
+    results=( "${PIPESTATUS[@]}" )
+    result=0
+else
+    results=( "${PIPESTATUS[@]}" )
+    result=1
+fi
+handle_result "$result" \
+    "Got [$(wc -l < "$tmp")] lines" \
+    "Error codes - curl: [${results[0]}], jq: [${results[1]}]" \
+    "$notice" || die "failed to download/extract license text"
+set +o pipefail
+
+printf '\n'
+# use script_header_joetoo's show_config to display confing of varlist (defined above)
+show_config
+
+# if this license text file already exists, verify before overwrite
+if [ -f "${sources_repository%/}/LICENSES/${licenseID}.txt" ];  then
+    printf '\n'
+    j_msg "-${warn}" -p "${BYon}License text file [${BWon}${sources_repository%/}/LICENSES/${licenseID}.txt${BYon}] already exists.${Boff}"
+    j_msg "-${warn}" -p "${BRon}Caution: this process will overwrite it${Boff}"
+fi
+
+confirm_continue_or_exit
+
+# set permissions prior to atomic write
+j_msg "-${notice}" -p -n "Setting permissions on tempfile ..."
+if chmod 0644 "$tmp";  then result=0; else result=$?; fi
+handle_result "$result" "perms: $(stat -c '%a' "${tmp}")" "" "$notice" || die "failed to set permissions on tempfile" "$result"
+
+# atomic write the text file with mv (after, tmp no longer names an existing file, so reinitialize it)
+j_msg "-${notice}" -p "Writing license text file ..."
+if mv "$tmp" "${sources_repository%/}/LICENSES/${licenseID}.txt";  then result=0; tmp=""; else result=$?; fi
+right_status "$result" "$notice" || die "failed to write lincense text file" "$result"

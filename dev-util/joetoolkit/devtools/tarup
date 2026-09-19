@@ -528,6 +528,7 @@ stage-new-tarball() {
         handle_result "$result" "valid" "invalid" "${notice}" || \
             die "invalid SPDX License Identifier [${each}]"
         j_msg "-${notice}" -p -n "copying [${each}.txt] to STAGED_SOURCE_DIR LICENSES subdir ..."
+        # ignore that this overwrites licenses that may already have been copied into the package
         if cp -a "${sources_repository%/}/LICENSES/${each}.txt" "${STAGED_SOURCE_DIR%/}/LICENSES/" 2>/dev/null; then
             result=0; else result=$?; fi
         handle_result "$result" "" "" "${notice}" || {
