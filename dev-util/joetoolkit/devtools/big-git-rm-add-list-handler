@@ -242,6 +242,8 @@ review_changes()   # (Bash) review pending changes for subsequent commit
               "$working_status" == "R" || "$working_status" == "C" ]]; then
             (( ++i ))
             original_path="${changes[i]}"
+            # in this function, this data is used for ui messages only, so update the "path" variable for simplicity
+            path="${original_path} -> ${path}"
         fi
 
         # print the decoded staged and pending messages
@@ -345,6 +347,7 @@ stage_changes()   # (Bash) stage pending changes for subsequent commit
             (( ++i ))
             original_path="${changes[i]}"
         fi
+        [ -n "$original_path" ] && j_msg "-${debug}" -p "original_path: [$original_path]"
 
         # message and take action as appropriate
         case "$action" in
