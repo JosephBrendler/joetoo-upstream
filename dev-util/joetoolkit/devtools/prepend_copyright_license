@@ -1,0 +1,147 @@
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# prepend_copyright_license - prepend just copyright and spdx lines to a config file
+# (use insert_into_file to add these lines to any script with a shebang)
+
+# note: shellcheck source=/usr/sbin/script_header_joetoo (don't do this - it will consume all memory and swap)
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+
+#-----[ variables ]--------------------------------------------------
+
+user="joe"
+sources_repository="/home/${user}/joetoo-upstream"
+ls_header_file="${sources_repository%/}/dev-util/joetoolkit/devtools/prepend_copyright_license.hdr"
+
+#-----[ functions ]--------------------------------------------------
+
+
+cleanup-tempfile() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    # protect against accidental corruption of tmp
+    case "$tmp" in
+        /tmp/tmp.*) ;;   #........# this is ok to clean up
+        ""        ) return 0 ;;   # this is nothing to clean up
+        *         ) j_msg "-${err}" -p "refusing to remove unexpected tempfile [$tmp]"; return 1 ;;
+    esac
+    # cleanly remove tempfile
+    if [ -f "$tmp" ]; then
+        j_msg "-${notice}" -p -n "Cleaning up tempfile [$tmp] ..."
+        if rm -f -- "$tmp" 2>/dev/null; then result=0; else result=1; fi
+        right_status $result || return 2
+        tmp=""
+    else
+         j_msg "-${err}" -p "temp file [$tmp] not found; aborting cleanup"
+         return 1
+    fi
+}
+# @usage cleanup-tempfile
+# @ret 0 - tempfile removed, or no tempfile is named by tmp
+# @ret 1 - tmp does not identify an existing file
+# @ret 2 - rm failed to remove an otherwise valid tempfile
+# @deps j_msg
+# @vars tmp - tempfile pathname; cleared after successful removal
+# @rule only removes tmp values matching /tmp/tmp.*
+# @note safe for repeated invocation, including cleanup hooks and EXIT trap
+
+usage() {
+    local msg=""
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${err}" -p "${BRon}usage: ${BGon}${PN} ${BMon}/path/to/target ${BCon}[filter]${Boff}"
+    j_msg "-${notice}" -p "${BYon}Notes:${Boff}"
+    j_msg "-${notice}" -m "   ${Con}target may be a file or a directory (default: ./ i.e. PWD)${Boff}"
+    msg="   ${Con}filter is optional string for ${BBon}find${Boff} ..."
+    msg+=" ${BMon}-iname${BCon} \"\$filter\"${Boff}${Con} (default: none)${Boff}"
+    j_msg "-${notice}" -m "$msg"
+    exit 1
+}
+
+prepend_file() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
+    local result=0
+    local file="$1"
+    # guard - check if this is necessary
+    if grep -q '^# SPDX-License-Identifier: GPL-3.0-or-later$' "$file"; then
+        j_msg "-${notice}" -p "target file [$file] already contains SPDX license header; skipping"
+        return 0
+    fi
+    # make tempfile
+    j_msg "-${info}" -p "making tempfile ..."
+    if tmp=$(mktemp); then result=0; else result=$?; fi
+    handle_result "$result" "$tmp" "" "$info" || die "failed to make tempfile" "$result"
+    # concatenate header and file to tempfile
+    j_msg "-${notice}" -p -n "generating replacement content for [$file] ..."
+    if cat "$ls_header_file" "$file" > "$tmp"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to generating replacement content for [$file]"
+	j_msg "-${notice}" -p -n "prepending header to target file [$file] ..."
+    # write to file (cat not mv, to preserve original ownership and mode); reinitialize the tmp filename
+    if cat "$tmp" > "$file"; then result=0; tmp=""; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to write updated content to [$file]"
+    # clean up tempfile
+    if cleanup-tempfile; then result=0; else result=$?; fi || die "failed to clean up tempfile" "$result"
+    return 0
+}
+
+prepend_directory() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    local -a targets=()
+    local -a find_args=( "$target" -type f )
+    if [ -n "$filter" ]; then
+        find_args+=( -iname "$filter" -print0 )
+    else
+        find_args+=( -print0 )
+    fi
+    j_msg "-${debug}" -p "find_args: [${find_args[*]}]"
+    # create array of filenames to $target in this directory
+    mapfile -d '' -t targets < <( find "${find_args[@]}" )
+    j_msg "-${debug}" -p "dumping targets --"
+    # note: shellcheck cannot comprehend d_do
+    # shellcheck disable=SC2016
+    d_do 'printf "%s\n" "${targets[@]}"' "$debug"
+    # loop through array to prepend to target files
+    for file in "${targets[@]}"; do
+        # possibly add || die "..." to this file-level action
+        prepend_file "$file"
+    done
+}
+# @usate prepend_directory
+# @vars target filter
+# @note builds array of files in target dir and calls prepend_file for each file in array
+
+#-----[ main script ]------------------------------------------------
+checkroot
+
+[ $# -gt 2 ] && { j_msg "-${err}" -p "no more than 2 args permitted" ; usage ; }
+target="${1:-./}"   # default to PWD
+filter="${2:-}"   #.# defaault to no filter
+
+# use script_header_joetoo _CLEANUP_HOOKS to enable die() to do this BEFORE issuing EXIT signal
+# so normal error handling runs cleanup-staging w/o trap
+register_cleanup_hook cleanup-tempfile || die "failed to register cleanup-tempfile hook"
+# ensure temp staging dir gets removed in unhandled errors leading to EXIT
+trap cleanup-tempfile EXIT
+
+separator "$(hostname)" "${PN}-${BUILD}"
+
+if [ -d "$target" ]; then
+    j_msg "-${notice}" -p "${BYon}About to run ${BGon}prepend_directory ${Boff}for target [$target]"
+    confirm_continue_or_exit
+    prepend_directory || die "failed to prepend_directory"
+elif [ -f "$target" ]; then
+    j_msg "-${notice}" -p "${BYon}About to run ${BGon}prepend_file ${BCon}\"\$target\" ${Boff}for target [$target]"
+    confirm_continue_or_exit
+    prepend_file "$target" || die "failed to prepend_file"
+else
+    die "invalid target [$target] for $PN"
+fi
+
+j_msg "-${notice}" -p "${BGon}Done${Boff}"
