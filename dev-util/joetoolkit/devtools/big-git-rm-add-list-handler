@@ -14,106 +14,418 @@ if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1
 
 #-----[ variables ]--------------------------------------------------
 
+user="joe"
+upstream_repository="/home/${user}/joetoo-upstream"
+ebuild_repository="/home/${user}/joetoo"
+
 declare -a changes=()   # indexed array of pending not-yet-staged changes
 
 #-----[ functions ]--------------------------------------------------
 
-read_changes()   # (Bash) read pending changes into array (git status lines begin w space and do NOT incl "(use")
+usage() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${err}" -p "${BRon}usage${Boff}: ${BGon}${PN} ${BMon}<package_name>${Boff}"
+    j_msg "-${notice}" -p "${BYon}Notes:${Boff}"
+    j_msg "-${notice}" -m " ${Con}Must run from inside a <repo>/<category>/ directory and supply <package> as \$1${Boff}"
+    exit 1
+}
+
+read_changes()   # (Bash) read scoped git status records into array
 {   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     local result=0
-    j_msg "-${notice}" -p -n "Reading pending not-yet-staged changes into array ..."
-    if readarray -t changes < <( git status | grep "^${W1}" | grep -v '(use' ); then result=0; else result=$?; fi
-    handle_result "$result" "ingested: [${#changes[@]}]" "" "$notice" || die "failed to read pending changes into array"
+    # set up args for a more "machine-readable" git status: --porcelain output format and -z for null terminators
+    local -a git_args=( status --porcelain=v1 -z )
+    j_msg "-${notice}" -p -n "Reading git status into array ..."
+
+    # carefully manage scope with explicit paths
+    case "$scope" in
+        repo-global) ;;   # no need to add to git_args - already global
+        package)          # append scope to git args ( paths appended to repo-root :(top) )
+            case "$repo" in
+                "$upstream_repository")
+                    git_args+=( -- )   #......................................................# all after are args
+                    git_args+=( ":(top)${category}/${package}" )   #..........................# include package directory
+                    git_args+=( ":(top,glob)${category}/${package}-*.tbz2" ) ;;  #............# include package tarball
+                "$ebuild_repository")
+                    git_args+=( -- )   #......................................................# all after are args
+                    git_args+=( ":(top)${category}/${package}" )   #..........................# include package directory
+                    git_args+=( ":(top,glob)metadata/md5-cache/${category}/${package}*" ) ;;  # include package metadata
+                *) die "invalid repository [$repo] in read_changes" ;;
+            esac ;;
+        *) die "unknown scope [$scope]" ;;
+    esac
+    # reinitialize (and then read git status records into) array
+    changes=()
+    if readarray -d '' -t changes < <( git "${git_args[@]}" ); then result=0; else result=$?; fi
+    handle_result "$result" "ingested: [${#changes[@]}]" "" "$notice" || die "failed to read git status into array"
+    [ "${#changes[@]}" -eq 0 ] && die "${FUNCNAME[0]} ingested no git status records; nothing to do"
+    j_msg "-${debug}" -p "git_args: [${git_args[@]}]"
+    j_msg "-${debug}" -p "dumping changes array --"
+    d_do 'printf "%s\n" "${changes[@]}"' "$debug"
+    j_msg "-${debug}" -p "returning from ${FUNCNAME[0]}; exit status: [$result]"
+    return $result
 }
+# @usage read_changes
+# @note workflow intent is to read only the selected repository/package scope
+
+validate_changes()   #(Bash) validate the git status lines in the changes array
+{   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    local i=0
+    local line=""
+    local staging_status=""
+    local working_status=""
+    local xy=""
+    local path=""
+    local _um=""
+    local FLAGGED=$FALSE
+
+    for (( i=0; i<${#changes[@]}; i++ )); do
+        result=0   # (re)initialize
+        line="${changes[i]}"
+        j_msg "-${debug}" -p -n "considering line: [$line]"
+        # porcelain-v1 record must at least contain "XY "
+        if (( ${#line} < 4 )) || [[ "${line:2:1}" != " " ]]; then FLAGGED=$TRUE; break; fi
+
+        staging_status="${line:0:1}"
+        working_status="${line:1:1}"
+        path="${line:3}"
+        xy="${staging_status}${working_status}"
+        _um="unmerged/conflicted git status [$xy] for [$path]; resolve manually before staging"
+
+        # also reject empty path
+        [[ -n "$path" ]] || { FLAGGED=$TRUE; break; }
+
+        # validate XY combination
+        case "$xy" in
+            # these are known-good combinations; note terminology --
+            #   working tree = the checked-out files you are actively editing in the filesystem
+            #   index / staging area = the snapshot you are preparing for the next commit
+            #   local repository = your .git database containing commits, branches, refs, objects, etc.
+            #   remote/upstream repository = e.g. GitHub origin, where you push commits and from which you fetch/pull
+            '??') ;;  # untracked file
+            ' M') ;;  # tracked file modified in working tree, not staged
+            ' D') ;;  # tracked file deleted from working tree, not staged
+            ' T') ;;  # tracked file type changed in working tree, not staged
+            ' R') ;;  # tracked file renamed in working tree, not staged
+            ' C') ;;  # tracked file copied in working tree, not staged
+
+            'M ') ;;  # tracked file modification staged; worktree unchanged since
+            'MM') ;;  # modification staged, then additionally modified in working tree
+            'MD') ;;  # modification staged, then file deleted from working tree
+            'MT') ;;  # modification staged, then type changed in working tree
+
+            'A ') ;;  # new file staged; worktree unchanged since
+            'AM') ;;  # new file staged, then additionally modified in working tree
+            'AD') ;;  # new file staged, then deleted from working tree
+
+            'D ') ;;  # tracked file deletion staged; worktree agrees with index
+
+            'AT') ;;  # new file staged, then type changed in working tree
+            'RT') ;;  # rename staged, then renamed destination type changed in working tree
+            'CT') ;;  # copy staged, then copied destination type changed in working tree
+            'TT') ;;  # type change staged, then type changed again in working tree
+
+            'R ') ;;  # rename staged; worktree unchanged since
+            'RM') ;;  # rename staged, then renamed destination modified in working tree
+            'RD') ;;  # rename staged, then renamed destination deleted from working tree
+
+            'C ') ;;  # copy staged; worktree unchanged since
+            'CM') ;;  # copy staged, then copied destination modified in working tree
+            'CD') ;;  # copy staged, then copied destination deleted from working tree
+
+            'T ') ;;  # type change staged; worktree unchanged since
+            'TM') ;;  # type change staged, then contents modified in working tree
+            'TD') ;;  # type change staged, then path deleted from working tree
+
+            # syntactically valid porcelain, but joetoo policy
+            # is to treat all of these as "stop and fix manually"
+            'DD') die "$_um" ;;  # unmerged: both sides deleted
+            'AU') die "$_um" ;;  # unmerged: added by us
+            'UD') die "$_um" ;;  # unmerged: deleted by them
+            'UA') die "$_um" ;;  # unmerged: added by them
+            'DU') die "$_um" ;;  # unmerged: deleted by us
+            'AA') die "$_um" ;;  # unmerged: both sides added
+            'UU') die "$_um" ;;  # unmerged: both sides modified
+            *) FLAGGED=$TRUE; break ;;
+        esac
+        # R/C consumes one additional NUL-delimited pathname
+        if [[ "$staging_status" == "R" || "$staging_status" == "C" ||
+              "$working_status" == "R" || "$working_status" == "C" ]]; then
+            (( ++i < ${#changes[@]} )) || { FLAGGED=$TRUE; break; }
+
+            # this element is the second pathname, so do NOT try to parse XY from it
+            [[ -n "${changes[i]}" ]] || { FLAGGED=$TRUE; break; }
+        fi
+        handle_result "$result" "valid" "invalid" "$debug"
+    done
+    [ "$FLAGGED" ] && return 1
+    return 0
+}
+
 
 review_changes()   # (Bash) review pending changes for subsequent commit
 {   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     local result=0
-    # iterate through array
-    for line in "${changes[@]}"; do
-        # set $line as positional parameters - do not quote - intentional word-split the line
-        # shellcheck disable=SC2086
-        set -- ${line}
-        case $# in
-            2 )
-                # these objects may have been added, modified, or deleted - act appropriately
-                action="$1"
-                object="$2"
-                if [ "${action}" == "deleted:" ]; then
-                    j_msg "-${notice}" -p "Pending: git rm tracked object [${BRon}${object}${Boff}]"
-                else
-                    j_msg "-${notice}" -p "Pending: git add tracked object [${BRon}${object}${Boff}]"
-                fi
-                ;;
-            1 )
-                # these are "untracked" objects, so add them
-                action="add-untracked"
-                object="$1"
-                j_msg "-${notice}" -p "Pending: git add untracked object [${BRon}${object}${Boff}]"
-                ;;
-            * )
-                j_msg "-${debug}" -p 'case: *'
-                j_msg "-${debug}" -p "Invalid line [ ${line} ]"
-                j_msg "-${debug}" -p "# args: [ $# ]"
-                die "Invalid line [ ${line} ]"
-                ;;
+    local i=0
+    local line=""
+    local staging_status=""
+    local working_status=""
+    local xy=""
+    local path=""
+    local original_path=""
+    local _um=""
+    local FLAGGED=$FALSE
+
+    for (( i=0; i<${#changes[@]}; i++ )); do
+        line="${changes[i]}"
+        j_msg "-${debug}" -p "considering line: [$line]"
+
+        staging_status="${line:0:1}"
+        working_status="${line:1:1}"
+        path="${line:3}"
+        xy="${staging_status}${working_status}"
+        _um="unmerged/conflicted git status [$xy] for [$path]; resolve manually before staging"
+
+        # (re)initialize
+        original_path=""
+
+        # formulate staged and pending messages for XY combination
+        case "$xy" in
+            # these are known-good combinations; note terminology --
+            #   working tree = the checked-out files you are actively editing in the filesystem
+            #   index / staging area = the snapshot you are preparing for the next commit
+            #   local repository = your .git database containing commits, branches, refs, objects, etc.
+            #   remote/upstream repository = e.g. GitHub origin, where you push commits and from which you fetch/pull
+            '??') staged_msg=""; pending_msg="untracked file" ;;
+            ' M') staged_msg=""; pending_msg="tracked file modified in working tree, not staged" ;;
+            ' D') staged_msg=""; pending_msg="tracked file deleted from working tree, not staged" ;;
+            ' T') staged_msg=""; pending_msg="tracked file type changed in working tree, not staged" ;;
+            ' R') staged_msg=""; pending_msg="tracked file renamed in working tree, not staged" ;;
+            ' C') staged_msg=""; pending_msg="tracked file copied in working tree, not staged" ;;
+
+            'M ') staged_msg="tracked file modification staged, worktree unchanged since"; pending_msg="" ;;
+            'MM') staged_msg="modification staged"; pending_msg="file additionally modified in working tree" ;;
+            'MD') staged_msg="modification staged"; pending_msg="file deleted from working tree" ;;
+            'MT') staged_msg="modification staged"; pending_msg="type changed in working tree" ;;
+
+            'A ') staged_msg="new file staged; worktree unchanged since"; pending_msg="" ;;
+            'AM') staged_msg="new file staged"; pending_msg="file additionally modified in working tree" ;;
+            'AD') staged_msg="new file staged"; pending_msg="file deleted from working tree" ;;
+
+            'D ') staged_msg="tracked file deletion staged; worktree agrees with index"; pending_msg="" ;;
+
+
+            'AT') staged_msg="new file staged"; pending_msg="file type changed in working tree" ;;
+            'RT') staged_msg="rename staged"; pending_msg="filerenamed destination type changed in working tree" ;;
+            'CT') staged_msg="copy staged";  pending_msg="filecopied destination type changed in working tree" ;;
+            'TT') staged_msg="type change staged"; pending_msg="file type changed again in working tree" ;;
+
+            'R ') staged_msg="rename staged, worktree unchanged since"; pending_msg="" ;;
+            'RM') staged_msg="rename staged"; pending_msg="renamed destination modified in working tree" ;;
+            'RD') staged_msg="rename staged"; pending_msg="renamed destination deleted from working tree" ;;
+
+            'C ') staged_msg="copy staged; worktree unchanged since"; pending_msg="" ;;
+            'CM') staged_msg="copy staged"; pending_msg="copied destination modified in working tree" ;;
+            'CD') staged_msg="copy staged"; pending_msg="copied destination deleted from working tree" ;;
+
+            'T ') staged_msg="type change staged, worktree unchanged since"; pending_msg="" ;;
+            'TM') staged_msg="type change staged"; pending_msg="contents modified in working tree" ;;
+            'TD') staged_msg="type change staged"; pending_msg="path deleted from working tree" ;;
+            *) FLAGGED=$TRUE; break ;;
         esac
+        j_msg "-${debug}" -p "staged_msg: [$staged_msg]"
+        j_msg "-${debug}" -p "pending_msg: [$pending_msg]"
+
+        # R/C consumes one additional NUL-delimited pathname
+        if [[ "$staging_status" == "R" || "$staging_status" == "C" ||
+              "$working_status" == "R" || "$working_status" == "C" ]]; then
+            (( ++i ))
+            original_path="${changes[i]}"
+        fi
+
+        # print the decoded staged and pending messages
+        [ -n "$staged_msg" ]  && j_msg "-${notice}" -p "${BRon}${path}${BYon} [${BYon}${staged_msg}]${Boff}"
+        [ -n "$pending_msg" ] && j_msg "-${notice}" -p "${BRon}${path}${BYon} [${BYon}${pending_msg}]${Boff}"
     done
+    [ "$FLAGGED" ] && return 1
+    return 0
 }
+# @usate review_changes
+# @note present a human-readable interpretation of both current-package (index) and worktree scope
 
 stage_changes()   # (Bash) stage pending changes for subsequent commit
 {   j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     local result=0
-    # iterate through array
-    for line in "${changes[@]}"; do
-        # set $line as positional parameters - do not quote - intentional word-split the line
-        # shellcheck disable=SC2086
-        set -- ${line}
-        case $# in
-            2 )
-                # these objects may have been added, modified, or deleted - act appropriately
-                action="$1"
-                object="$2"
-                j_msg "-${debug}" -p "case: $#"
-                j_msg "-${debug}" -p "action: $action \t tracked object: [$object]"
-                if [ "${action}" == "deleted:" ]; then
-                    j_msg "-${notice}" -p -n "Running git rm tracked object [$object]"
-                    if git rm "$object"; then result=0; else result=$?; fi
-                    right_status "$result" "$notice" || die "failed to git rm tracked object [$object]"
-                else
-                    j_msg "-${notice}" -p -n "Running git add tracked object [$object]"
-                    if git add "$object"; then result=0; else result=$?; fi
-                    right_status "$result" "$notice" || die "failed to git add tracked object [$object]"
-                fi
-                j_msg "-${debug}" -p "Done with action: [$action] for tracked object: [$object]"
+    local i=0
+    local line=""
+    local staging_status=""
+    local working_status=""
+    local xy=""
+    local path=""
+    local _um=""
+    local action="" object="" original_path=""
+    local FLAGGED=$FALSE
+    # set up baseline args for git add relative to repo root
+    local -a git_base_args=( -C "$repo" add -- )
+    local -a action_args=()
+
+    for (( i=0; i<${#changes[@]}; i++ )); do
+        line="${changes[i]}"
+        j_msg "-${debug}" -p "considering line: [$line]"
+
+        staging_status="${line:0:1}"
+        working_status="${line:1:1}"
+        path="${line:3}"
+        xy="${staging_status}${working_status}"
+        _um="unmerged/conflicted git status [$xy] for [$path]; resolve manually before staging"
+
+        # (re)initialize
+        action=""
+        object=""
+        original_path=""
+        action_args=()
+
+        # determine action and object for XY combination
+        case "$xy" in
+            # nothing further to stage; index already represents current worktree state
+            'M ') ;;  # modification already staged
+            'A ') ;;  # addition already staged
+            'D ') ;;  # deletion already staged
+            'R ') ;;  # rename already staged
+            'C ') ;;  # copy already staged
+            'T ') ;;  # type change already staged
+
+            # ordinary unstaged change; make index reflect current working-tree state
+            '??') action="add"; object="$path" ;;  # stage untracked file
+            ' M') action="add"; object="$path" ;;  # stage modification
+            ' D') action="add"; object="$path" ;;  # stage deletion
+            ' T') action="add"; object="$path" ;;  # stage type change
+
+            # index already differs from HEAD, and worktree differs again from index
+            'MM') action="add"; object="$path" ;;  # stage additional modification
+            'MD') action="add"; object="$path" ;;  # stage subsequent deletion
+            'MT') action="add"; object="$path" ;;  # stage subsequent type change
+
+            'AM') action="add"; object="$path" ;;  # stage modification after addition
+            'AD') action="add"; object="$path" ;;  # stage deletion after addition
+            'AT') action="add"; object="$path" ;;  # stage type change after addition
+
+            'RM') action="add"; object="$path" ;;  # stage modification after rename
+            'RD') action="add"; object="$path" ;;  # stage deletion after rename
+            'RT') action="add"; object="$path" ;;  # stage type change after rename
+
+            'CM') action="add"; object="$path" ;;  # stage modification after copy
+            'CD') action="add"; object="$path" ;;  # stage deletion after copy
+            'CT') action="add"; object="$path" ;;  # stage type change after copy
+
+            'TM') action="add"; object="$path" ;;  # stage modification after type change
+            'TD') action="add"; object="$path" ;;  # stage deletion after type change
+            'TT') action="add"; object="$path" ;;  # stage subsequent type change
+
+            # unstaged rename/copy needs both NUL-delimited pathnames available
+            ' R')
+                action="add-pair"
+                object="$path"
                 ;;
-            1 )
-                # these are "untracked" objects, so add them
-                action="add-untracked"
-                object="$1"
-                j_msg "-${debug}" -p "case: $#"
-                j_msg "-${debug}" -p "action: $action \t untracked object: [$object]"
-                j_msg "-${notice}" -p -n "Running git add untracked object [$object]"
-                if git add "$object"; then result=0; else result=$?; fi
-                right_status "$result" "$notice" || die "failed to git add untracked object [$object]"
-                j_msg "-${debug}" -p "Done with action: [$action] for untracked object: [$object]"
+            ' C')
+                action="add-pair"
+                object="$path"
                 ;;
-            * )
-                j_msg "-${debug}" -p 'case: *'
-                j_msg "-${debug}" -p "Invalid line [ ${line} ]"
-                j_msg "-${debug}" -p "# args: [ $# ]"
-                exit 1
+
+            *)
+                die "unexpected git status [$xy] for [$path] in ${FUNCNAME[0]}"
+                ;;
+        esac
+        j_msg "-${debug}" -p "action: [$action] object: [$object]"
+
+        # R/C consumes one additional NUL-delimited pathname
+        if [[ "$staging_status" == "R" || "$staging_status" == "C" ||
+              "$working_status" == "R" || "$working_status" == "C" ]]; then
+            (( ++i ))
+            original_path="${changes[i]}"
+        fi
+
+        # message and take action as appropriate
+        case "$action" in
+            "")
+                j_msg "-${debug}" -p "Nothing to stage for [$xy] [$path]" ;;
+
+            add)
+                j_msg "-${notice}" -p -n "Running git add -- [$path]"
+                # update git args for this path
+                action_args=( "$path" )
+                if git "${git_base_args[@]}" "${action_args[@]}"; then result=0; else result=$?; fi
+                right_status "$result" "$notice" || die "failed to stage [$path]"
+                ;;
+
+            add-pair)
+                j_msg "-${notice}" -p -n "Running git add -- [$original_path] [$path]"
+                # update git args for thes paths
+                action_args=( "$original_path" "$path" )
+                if git "${git_base_args[@]}" "${action_args[@]}"; then result=0; else result=$?; fi
+                right_status "$result" "$notice" || die "failed to stage rename/copy [$original_path] -> [$path]"
                 ;;
         esac
     done
 }
+# @usate stage_changes
+# @note stage only changes relevant to the current package/worktree scope
+# @rule only stage changes after local branch is not stale relative to upstream
 
 #-----[ main script ]------------------------------------------------
 checknotroot
 
 separator "$(hostname)" "${PN}-${BUILD}"
 
+# guards (need $1 = valid package/eclass directory name)
+[ $# -eq 0 ] && { j_msg "-${err}" -p "Error: package/eclass directory name not specified" ; usage ; }
+[ $# -gt 1 ] && { j_msg "-${err}" -p "invalid arguments" ; usage ; }
+package="$1"
+
+# must be inside a known repo (repo root level or lower)
+if [[ "$PWD" == "$upstream_repository" || "$PWD" == "${upstream_repository%/}/"* ]]; then
+    repo="$upstream_repository"
+elif [[ "$PWD" == "$ebuild_repository" || "$PWD" == "${ebuild_repository%/}/"* ]]; then
+    repo="$ebuild_repository"
+else
+    die "Must run from inside a known repository"
+fi
+
+# determine location relative to repo root
+if [[ "$PWD" == "$repo" ]]; then
+    relative=""
+else
+    # strip repo and / from prefix of $PWD, leaving <category>/.../.../...
+    # then strip longest match for /* from suffix, leaving <category>
+    relative="${PWD#"${repo%/}/"}"
+fi
+
+# if at repo-root level (eclass workflow), category and package are NA - scope is intentionally repo-global
+if [[ -z "$relative" ]]; then
+    category=""
+
+    # guard - reject non-ebuild repo since null relative means PWD is repo root
+    [[ "$repo" != "$ebuild_repository" ]] && die "repository-root staging allowed in ebuild repo only (eclass workflow)"
+    # guard - reject package from $1 if it is not eclass, sinde PWD is repo-root
+    [[ "$package" != "eclass" ]] && die "repository-root staging requires package/eclass argument [eclass]"
+
+    scope="repo-global"
+else   # normal package mode
+    # strip longest match for /* from suffix of path relative to repo root, leaving <category>
+    category="${relative%%/*}"
+
+    # guard - reject eclass package from $1 since PWD is not the repo root
+    [[ "$package" == "eclass" ]] && die "eclass staging must be run from the ebuild repository root"
+    # guard - reject package from $1 if it does not name an actual package-level directory
+    [[ -d "${repo%/}/${category}/${package}" ]] || die "package directory [${category}/${package}] does not exist"
+
+    scope="package"
+fi
+
+
 read_changes || die "failed to read_changes"
+validate_changes || die "failed to validate_changes"
 review_changes || die "failed to review_changes"
 confirm_continue_or_exit
 stage_changes || die "failed to stage_changes"
