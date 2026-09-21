@@ -1,3 +1,7 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 README
 joetoo-base/joetoo-platform-meta was created 8/18/25 first by separation of 
 binrepos, make.conf, package.use, and package.accept_keywords

@@ -1,3 +1,7 @@
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 #-----[ package.use/80joetoo_common ]-------------------------------------------
 # This package.use file enables the tailored configuration of a joetoo system
 # The main point of meta-package USE flags is to reduce
@@ -15,7 +19,7 @@ dev-util/script_header_joetoo extended niopt
 dev-util/Terminal examples
 
 net-misc/ddns client -daemon_4 daemon_6 dhcpcd_4 -dhcpcd_6 ipv4 ipv6 -openvpn_4 -openvpn_6 -server -wsl_4 -wsl_6
-dev-util/joetoolkit iptools -router -xenvmfiles -backup_utilities -utility_archive
+dev-util/joetoolkit iptools  -converters -devtools -router
 sys-kernel/kernelupdate domU bcm2712-rpi-cm5-cm5io bcm2712-rpi-5-b bcm2711-rpi-cm4-io bcm2711-rpi-4-b bcm2710-rpi-3-b-plus bcm2710-rpi-3-b bcm2709-rpi-2-b bcm2708-rpi-b rk3288-tinker-s rk3399-rock-pi-4c-plus rk3399-rock-4se rk3399-tinker-2 rk3588-radxa-rock-5b+ rk3588-rock-5b rk3588s-orangepi-5 rk3588s-orangepi-5b rk3588s-rock-5c fsl-imx8mq-phanbell meson-gxl-s905x-libretech-cc-v2 meson-sm1-s905d3-libretech-cc meson-g12b-a311d-libretech-cc
 dev-sbc/qemu-tools bcm2712-rpi-cm5-cm5io bcm2712-rpi-5-b bcm2711-rpi-cm4-io bcm2711-rpi-4-b bcm2710-rpi-3-b-plus bcm2710-rpi-3-b bcm2709-rpi-2-b bcm2708-rpi-b rk3288-tinker-s rk3399-rock-pi-4c-plus rk3399-rock-4se rk3399-tinker-2 rk3588-radxa-rock-5b+ rk3588-rock-5b rk3588s-orangepi-5 rk3588s-orangepi-5b rk3588s-rock-5c fsl-imx8mq-phanbell meson-gxl-s905x-libretech-cc-v2 meson-sm1-s905d3-libretech-cc meson-g12b-a311d-libretech-cc
 
@@ -130,5 +134,7 @@ sys-apps/sysvinit nls
 #>=media-libs/freetype-2.13.3 -harfbuzz
 #>=dev-python/pillow-11.3.0 -truetype
 #>=media-libs/harfbuzz-11.4.5 -introspection -glib
-#>=dev-libs/libsodium-1.0.20_p20250606 -verify-sig
+#>=dev-libs/libsodium-1.0.20_p20180606 -verify-sig
 
+# until openvpn upstream gets itself signed right
+net-vpn/openvpn -verify-sig

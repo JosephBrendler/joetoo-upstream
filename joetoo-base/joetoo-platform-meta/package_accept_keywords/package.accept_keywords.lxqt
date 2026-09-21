@@ -1,3 +1,7 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 # *** (preliminary - not tested) ***
 >=lxde-base/lxterminal-0.4.0_p20230917::gentoo ~*
 

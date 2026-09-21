@@ -1,3 +1,6 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
 # Note: this won't do anything because there is no /etc/joetoo-platform-meta
 # where script_header_joetoo_extended will look for cli tool parts like
 #    /etc/crossbuild-tools/local.cmdline_arguments

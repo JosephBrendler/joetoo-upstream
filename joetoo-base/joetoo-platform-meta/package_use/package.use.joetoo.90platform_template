@@ -1,3 +1,7 @@
+# Copyright 2018-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 #-----[ package.use.joetoo.90platform_template ]--------------------------------------
 # This package.use file enables the tailored configuration of a joetoo system
 # ( this template was generated automatically, by the joetoo-base/joetoo-platform-meta

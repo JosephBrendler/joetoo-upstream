@@ -1,4 +1,8 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 # assemble a make.conf file for a joetoo system
 
 # must be root - to create tempfile
@@ -6,146 +10,172 @@
 # source headers
 #script_header_installed_dir=./         ## only when testing, pre-ebuild
 script_header_installed_dir=/usr/sbin   # this is where it should be installed
+# shellcheck source=/usr/sbin/script_header_joetoo
 source "${script_header_installed_dir%/}/script_header_joetoo"
 
-#user="joe"  # supplied by config file
-
-package_source_dir=/home/joe/myUtilities/joetoo-base/joetoo-platform-meta
+tool_user="joe"   #.........# override when supplied by config file
+upstream_repository="/home/${tool_user}/joetoo-upstream"
+package_source_dir="${upstream_repository%/}/joetoo-base/joetoo-platform-meta"
 tool_dir="${package_source_dir%/}/tools"
+config_dir="${tool_dir%/}/assemble-make-conf-configs/"
 
-j_msg -${notice} -p -n "sourcing BUILD ..."
-source "${package_source_dir%/}/BUILD" ; right_status $? ${notice}
-j_msg -${notice} -p -n "sourcing BPN ..."
-source "${package_source_dir%/}/BPN" ; right_status $? ${notice}
+j_msg "-${notice}" -p -n "sourcing BUILD ..."
+# shellcheck disable=SC1091
+source "${package_source_dir%/}/BUILD" ; right_status $? "${notice}"
+j_msg "-${notice}" -p -n "sourcing BPN ..."
+# shellcheck disable=SC1091
+source "${package_source_dir%/}/BPN" ; right_status $? "${notice}"
+# shellcheck source=/usr/sbin/script_header_joetoo_extended
 source "${script_header_installed_dir%/}/script_header_joetoo_extended"
 
 # only needed for testing sources pending package build
-#script_header_installed_dir=/home/joe/myUtilities/dev-util/script_header_joetoo
+#script_header_installed_dir=/home/${tool_user}/joetoo-upstream/dev-util/script_header_joetoo
 
 #-----[ variables ]------------------------------------------------------
 [ -z "$verbosity" ] && verbosity=5
 PN=${0##*/}
+
 myCONFIG=""
-config_dir="${tool_dir%/}/assemble-make-conf-configs/"
+
 
 varlist=" PN BUILD"
 varlist+=" BREAK BOARD TARGET TARGET_ARCH QEMU_ARCH TUPLE1"
 varlist+=" BREAK rlv.config_file bool.INTERACTIVE SYS_TYPE"
 varlist+=" ENV_TYPE rlv.OUT_FILE bool.OVER_WRITE"
-varlist+=" BREAK rlv.tool_dir rlv.package_source_dir rlv.MAKE_CONF_PARTS_DIR user rlv.DRAFT_FILE"
+varlist+=" BREAK rlv.tool_dir rlv.package_source_dir rlv.MAKE_CONF_PARTS_DIR tool_user rlv.DRAFT_FILE"
 varlist+=" bool.FLAGGED verbosity"
 
 hidden_varlist="result response answer "
 
 #-----[ functions ]------------------------------------------------------
 
-#j_msg -${notice} -p -n "sourcing cb-common-functions ..."
-#source /usr/sbin/cb-common-functions ; right_status $? ${notice}
+#j_msg "-${notice}" -p -n "sourcing cb-common-functions ..."
+#source /usr/sbin/cb-common-functions ; right_status $? "${notice}"
 #TARGET=""
 
 # override usage in script_header_joetoo and local.usage in crossbuild-tools
 usage() {
-    j_msg -${notice} -p "${BRon}usage: ${BGon}${PN} <BOARD> <CONFIG>${Boff}"
-    j_msg -${notice} -mp ""
-    j_msg -${notice} -p "${BYon}  BOARD must be one of the following --${Boff}"
-    d_do 'joetoo-sbc-list | sed "s|^|    |"' ${notice}
-    j_msg -${notice} -mp ""
-    j_msg -${notice} -p "${BYon}  CONFIG must be one of the following --${Boff}"
-    for conf in $(find ${config_dir%/}/ -name 'assemble-make-conf*.conf' -printf '%f\n'); do
-        j_msg -${notice} -mp "    ${conf}"
+    j_msg "-${notice}" -p "${BRon}usage: ${BGon}${PN} <BOARD> <CONFIG>${Boff}"
+    j_msg "-${notice}" -mp ""
+    j_msg "-${notice}" -p "${BYon}  BOARD must be one of the following --${Boff}"
+    d_do 'joetoo-sbc-list | sed "s|^|    |"' "${notice}"
+    j_msg "-${notice}" -mp ""
+    j_msg "-${notice}" -p "${BYon}  CONFIG must be one of the following --${Boff}"
+    local -a files=()
+    mapfile -d '' -t files < <(find "${config_dir%/}/" -name 'assemble-make-conf*.conf' -printf '%f\0')
+    for conf in "${files[@]}"; do
+        j_msg "-${notice}" -mp "    ${conf}"
     done
-    j_msg -${notice} -mp ""
-    j_msg -${notice} -p "${BMon}  which can be found/edited in ${LBon}${config_dir}${Boff}"
+    j_msg "-${notice}" -mp ""
+    j_msg "-${notice}" -p "${BMon}  which can be found/edited in ${BCon}${config_dir}${Boff}"
     exit 1
 }
 
 initialize_variables() {
     # use script_header_joetoo functions
-    initialize_vars ${varlist}
-    initialize_vars ${hidden_varlist}
+    initialize_vars "${varlist}"
+    initialize_vars "${hidden_varlist}"
+    local result=0
 
     FLAGGED=$FALSE
     # assign initial values
-    j_msg -${notice} -p -n "Re-assigning PN = \$(basename $0) ..."
-    PN=${0##*/} ; result=$? ; right_status $result ${notice}
-    [ ! $result -eq 0 ] && FLAGGED=$TRUE
+    j_msg "-${notice}" -p -n "Re-assigning PN = \$(basename $0) ..."
+    PN=${0##*/} ; result=$? ; right_status "$result" "${notice}"
+    [ ! "$result" -eq 0 ] && FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Re-assigning package_source_dir = /home/joe/myUtilities/joetoo-base/joetoo-platform-meta ..."
-    export package_source_dir=/home/joe/myUtilities/joetoo-base/joetoo-platform-meta
-    right_status $? ${notice} || FLAGGED=$TRUE
+    # order: this assignment must precede package_source_dir= and tool_dir= config_dir=
+    j_msg "-${notice}" -p -n "Re-assigning tool_user = joe ..."
+    export tool_user="joe"
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Re-assigning tool_dir = ${package_source_dir%/}/tools ..."
-    export tool_dir=${package_source_dir%/}/tools
-    right_status $? ${notice} || FLAGGED=$TRUE
+    j_msg "-${notice}" -p -n "Re-assigning upstream_repository = /home/${tool_user}/joetoo-upstream ..."
+    export upstream_repository="/home/${tool_user}/joetoo-upstream"
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "sourcing BUILD ..."
-    source ${package_source_dir%/}/BUILD
-    right_status $? ${notice} || FLAGGED=$TRUE
+    j_msg "-${notice}" -p -n "Re-assigning package_source_dir = /home/${tool_user}/joetoo-upstream/joetoo-base/joetoo-platform-meta ..."
+    export package_source_dir="/home/${tool_user}/joetoo-upstream/joetoo-base/joetoo-platform-meta"
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "sourcing BPN ..."
-    source ${package_source_dir%/}/BPN
-    right_status $? ${notice} || FLAGGED=$TRUE
+    j_msg "-${notice}" -p -n "Re-assigning tool_dir = ${package_source_dir%/}/tools ..."
+    export tool_dir="${package_source_dir%/}/tools"
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    # note: ordered this way, config file can override verbosity
-    j_msg -${notice} -p -n "maybe re-assigning verbosity = 5 ..."
+    j_msg "-${notice}" -p -n "Re-assigning config_dir = ${tool_dir%/}/assemble-make-conf-configs/ ..."
+    export config_dir="${tool_dir%/}/assemble-make-conf-configs/"
+    right_status $? "${notice}" || FLAGGED=$TRUE
+
+    # note: ordered this way, config file can override verbosity;
+    j_msg "-${notice}" -p -n "maybe re-assigning verbosity = 5 ..."
     if [ -z "$verbosity" ] ; then export verbosity=5; fi
-    right_status $? ${notice} || FLAGGED=$TRUE
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Assigning config_file"
-    [ -f "${config_dir%/}/${myCONFIG}" ] && \
-        config_file="${config_dir%/}/${myCONFIG}" || \
+    j_msg "-${notice}" -p -n "Assigning config_file"
+    if [ -f "${config_dir%/}/${myCONFIG}" ]; then
+        config_file="${config_dir%/}/${myCONFIG}"
+        result=0
+    else
+        printf '\n'
         die "config_file [${config_dir%/}/${myCONFIG}] does not exist"
-    handle_result 0 "${myCONFIG}" "" ${notice} || FLAGGED=$TRUE
+    fi
+    handle_result "$result" "${myCONFIG}" "" "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "sourcing ${config_file} ..."
+    j_msg "-${notice}" -p -n "sourcing ${config_file} ..."
+    # shellcheck disable=SC1090
     source "${config_file}"
-    right_status $? ${notice} || FLAGGED=$TRUE
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Re-assigning BOARD = ${myBOARD} ..."
-    export BOARD=${myBOARD}
-    right_status $? ${notice} || FLAGGED=$TRUE
+    j_msg "-${notice}" -p -n "sourcing BUILD ..."
+    # shellcheck disable=SC1091
+    source "${package_source_dir%/}/BUILD"
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Re-assigning user = joe ..."
-    export user="joe"
-    right_status $? ${notice} || FLAGGED=$TRUE
+    j_msg "-${notice}" -p -n "sourcing BPN ..."
+    # shellcheck disable=SC1091
+    source "${package_source_dir%/}/BPN"
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Assigning MAKE_CONF_PARTS_DIR = ${tool_dir%/}/make-conf-parts ..."
+    j_msg "-${notice}" -p -n "Re-assigning BOARD = ${myBOARD} ..."
+    export BOARD="${myBOARD}"
+    right_status $? "${notice}" || FLAGGED=$TRUE
+
+    j_msg "-${notice}" -p -n "Assigning MAKE_CONF_PARTS_DIR = ${tool_dir%/}/make-conf-parts ..."
     export MAKE_CONF_PARTS_DIR="${tool_dir%/}/make-conf-parts"
-    right_status $? ${notice} || FLAGGED=$TRUE
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Assigning DRAFT_FILE = /tmp/draft-make-conf/make.conf.draft_${BOARD} ..."
+    j_msg "-${notice}" -p -n "Assigning DRAFT_FILE = /tmp/draft-make-conf/make.conf.draft_${BOARD} ..."
     # append pid to create a per-instance filename to prevent race conditions for parallel operations
     export DRAFT_FILE="/tmp/draft-make-conf/make.conf.draft_${BOARD}.$$"
-    right_status $? ${notice} || FLAGGED=$TRUE
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    j_msg -${notice} -p -n "Checking OUT_FILE directory [${package_source_dir%/}/make_conf] ..."
+    j_msg "-${notice}" -p -n "Checking OUT_FILE directory [${package_source_dir%/}/make_conf] ..."
     if [ -d "${package_source_dir%/}/make_conf" ]; then
-        handle_result 0 "exists" "" ${notice}
+        handle_result 0 "exists" "" "${notice}"
     else
         mkdir -p "${package_source_dir%/}/make_conf"
-        handle_result $? "created" "" ${notice} || FLAGGED=$TRUE
-        chown ${user}:${user} "${package_source_dir%/}/make_conf"
-        handle_result $? "fixed owner" "" ${notice} || FLAGGED=$TRUE
+        handle_result $? "created" "" "${notice}" || FLAGGED=$TRUE
+        chown "${tool_user}:${tool_user}" "${package_source_dir%/}/make_conf"
+        handle_result $? "fixed owner" "" "${notice}" || FLAGGED=$TRUE
     fi
 
-    j_msg -${notice} -p -n "Assigning OUT_FILE = ${package_source_dir%/}/make_conf/make.conf.\${SYS_TYPE}.\${ENV_TYPE}.\${BOARD}"
+    j_msg "-${notice}" -p -n "Assigning OUT_FILE = ${package_source_dir%/}/make_conf/make.conf.\${SYS_TYPE}.\${ENV_TYPE}.\${BOARD}"
     export OUT_FILE="${package_source_dir%/}/make_conf/make.conf.${SYS_TYPE}.${ENV_TYPE}.${BOARD}"
-    right_status $? ${notice} || FLAGGED=$TRUE
+    right_status $? "${notice}" || FLAGGED=$TRUE
 
-    [ $FLAGGED ] && return 1 || return 0
+    [ "$FLAGGED" ] && return 1 || return 0
 }
 
 display_configuration() {
     separator "${PN}" "(display configuration)"
     # use script_header_joetoo functions
-    longest=$(get_longest ${varlist})
-    display_vars $longest ${varlist} || return 1
+    longest=$(get_longest "${varlist}")
+    display_vars "$longest" "${varlist}" || return 1
     return 0
 }
 
 validate_board() {
     # look for a match in joetoo-sbc-list
-    candidates=( $(joetoo-sbc-list | grep "${BOARD}" | awk '{print $1}') )
+    local -a candidates=()
+    readarray -t candidates < <( joetoo-sbc-list | grep "${BOARD}" | awk '{print $1}' )
     if [ ${#candidates[@]} -gt 0 ] ; then
         # make sure it's an exact match, not just a subsring similarity (maybe multiple candidates)
         for ((i=0; i<${#candidates[@]}; i++)) ; do
@@ -153,7 +183,7 @@ validate_board() {
         done
     else
         # empty string means no match at all
-        j_msg -${err} "BOARD [$BOARD] is not currently supported"
+        j_msg "-${err}" "BOARD [$BOARD] is not currently supported"
     fi
     # return failure if it exhausted the list of candidates, no match, and got here
     return 1
@@ -164,15 +194,15 @@ validate_board() {
 # package or duplicate the whole cb-common-functions file in this package
 validate_target() {
     # TARGET = crossbuild target for image generation
-    [ $# -ne 1 ] && j_msg -${err} "Error: must specify BOARD" && return 1
-    BOARD=$1
-    j_msg -${info} -m "validating BOARD: [ ${BOARD} ]"
+    [ $# -ne 1 ] && j_msg "-${err}" "Error: must specify BOARD" && return 1
+    BOARD="$1"
+    j_msg "-${info}" -m "validating BOARD: [ ${BOARD} ]"
     case "$BOARD" in
         "generic-amd64"         )
             TARGET=x86_64-pc-linux-gnu
             TARGET_ARCH=amd64
             QEMU_ARCH=x86_64
-            STAGE3_SELECTOR="stage3-amd64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-amd64-openrc-[0-9]"
             default_profile="default/linux/amd64/23.0"
             LLVM_TARGET="X86-64"
             VALID=$TRUE ;;
@@ -180,7 +210,7 @@ validate_target() {
             TARGET=armv6j-unknown-linux-gnueabihf
             TARGET_ARCH=arm
             QEMU_ARCH=arm
-            STAGE3_SELECTOR="stage3-armv6j_hardfp-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-armv6j_hardfp-openrc-[0-9]"
             default_profile="default/linux/arm/23.0/armv6j_hf"
             LLVM_TARGET="ARM"
             VALID=$TRUE ;;
@@ -188,7 +218,7 @@ validate_target() {
             TARGET=armv7a-unknown-linux-gnueabihf
             TARGET_ARCH=arm
             QEMU_ARCH=arm
-            STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
             default_profile="default/linux/arm/23.0/armv7a_hf"
             LLVM_TARGET="ARM"
             VALID=$TRUE ;;
@@ -196,7 +226,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=arm
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -204,7 +234,7 @@ validate_target() {
             TARGET=armv6j-unknown-linux-gnueabihf
             TARGET_ARCH=arm
             QEMU_ARCH=arm
-            STAGE3_SELECTOR="stage3-armv6j_hardfp-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-armv6j_hardfp-openrc-[0-9]"
             default_profile="default/linux/arm/23.0/armv6j_hf"
             LLVM_TARGET="ARM"
             VALID=$TRUE ;;
@@ -212,7 +242,7 @@ validate_target() {
             TARGET=armv7a-unknown-linux-gnueabihf
             TARGET_ARCH=arm
             QEMU_ARCH=arm
-            STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
             default_profile="default/linux/arm/23.0/armv7a_hf"
             LLVM_TARGET="ARM"
             VALID=$TRUE ;;
@@ -220,7 +250,7 @@ validate_target() {
             TARGET=armv7a-unknown-linux-gnueabihf
             TARGET_ARCH=arm
             QEMU_ARCH=arm
-            STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
             default_profile="default/linux/arm/23.0/armv7a_hf"
             LLVM_TARGET="ARM"
             VALID=$TRUE ;;
@@ -228,7 +258,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -236,7 +266,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -244,7 +274,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -252,7 +282,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -260,7 +290,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -268,7 +298,7 @@ validate_target() {
             TARGET=armv7a-unknown-linux-gnueabihf
             TARGET_ARCH=arm
             QEMU_ARCH=arm
-            STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-armv7a_hardfp-openrc-[0-9]"
             default_profile="default/linux/arm/23.0/armv7a_hf"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -276,7 +306,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -284,7 +314,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -292,7 +322,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -300,7 +330,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -308,7 +338,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -316,7 +346,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -324,7 +354,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -332,7 +362,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -340,7 +370,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -348,7 +378,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -356,7 +386,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -364,7 +394,7 @@ validate_target() {
             TARGET=aarch64-unknown-linux-gnu
             TARGET_ARCH=arm64
             QEMU_ARCH=aarch64
-            STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
+            export STAGE3_SELECTOR="stage3-arm64-openrc-[0-9]"
             default_profile="default/linux/arm64/23.0"
             LLVM_TARGET="AArch64"
             VALID=$TRUE ;;
@@ -372,22 +402,22 @@ validate_target() {
             VALID=$FALSE ;;
     esac
 
-    if [[ $VALID ]] ; then
-        j_msg -${notice} -mp ""
-        j_msg -${info} -m "BOARD ...........: ${BOARD}"
-        j_msg -${info} -m "TARGET ..........: ${TARGET}"
-        j_msg -${info} -m "TARGET_ARCH .....: ${TARGET_ARCH}"
-        j_msg -${info} -m "QEMU_ARCH .......: ${QEMU_ARCH}"
-        j_msg -${info} -m "default_profile..: ${default_profile}"
-        j_msg -${info} -m "LLVM_TARGET......: ${LLVM_TARGET}"
-        j_msg -${notice} -p "${BGon}[valid target]${Boff}"
+    if [[ "$VALID" ]] ; then
+        j_msg "-${notice}" -mp ""
+        j_msg "-${info}" -m "BOARD ...........: ${BOARD}"
+        j_msg "-${info}" -m "TARGET ..........: ${TARGET}"
+        j_msg "-${info}" -m "TARGET_ARCH .....: ${TARGET_ARCH}"
+        j_msg "-${info}" -m "QEMU_ARCH .......: ${QEMU_ARCH}"
+        j_msg "-${info}" -m "default_profile..: ${default_profile}"
+        j_msg "-${info}" -m "LLVM_TARGET......: ${LLVM_TARGET}"
+        j_msg "-${notice}" -p "${BGon}[valid target]${Boff}"
     else
-        j_msg -${err} "${BRon}[invalid target]${Boff}"
+        j_msg "-${err}" "${BRon}[invalid target]${Boff}"
         # run the usage() function
         ## *** of whatever script sourced this function ***
         usage
     fi
-    j_msg -${notice} -mp ""
+    j_msg "-${notice}" -mp ""
     return 0
 }
 
@@ -402,7 +432,7 @@ sanity_check() {
     [[ "${ENV_TYPE:1:1}" != [rR] ]] && [[ "${ENV_TYPE:1:1}" != [hH] ]] && \
         die "invalid ENV_TYPE [${ENV_TYPE}] ; please correct this in ${config_file}"
     # don't need to sanity check OUT_FILE - if the dirname does not exist, we create it
-    # and if the file already exists, and OVER_WRITE=$FALSE, we get user to confirm
+    # and if the file already exists, and OVER_WRITE=$FALSE, we get tool_user to confirm
     return 0
 }
 
@@ -416,16 +446,16 @@ add-part() {
 }
 
 create-draft-file() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "initializing draft make.conf file ..."
-    z=${DRAFT_FILE%/*}    # dirname
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "initializing draft make.conf file ..."
+    z="${DRAFT_FILE%/*}"    # dirname
     export DRAFT_DIR="${z}"
     if [ -d "${z}" ]; then
-        j_msg -${notice} -mp -n " (${BGon}exists${Boff})"
+        j_msg "-${notice}" -mp -n " (${BGon}exists${Boff})"
     else
         mkdir -p "${z}" ; result=$?
-        if [ $result -eq 0 ] ; then
-            j_msg -${notice} -mp -n " (${BGon}created${Boff})"
+        if [ "$result" -eq 0 ] ; then
+            j_msg "-${notice}" -mp -n " (${BGon}created${Boff})"
         else
             die "failed to mkdir -p ${z}"
         fi  # mkdir result
@@ -434,185 +464,185 @@ create-draft-file() {
         rm "${DRAFT_FILE}" || die "failed to rm ${DRAFT_FILE}"
     fi  # draft file
     touch "${DRAFT_FILE}"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-heading() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding heading ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding heading ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/01_heading-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-COMMON_FLAGS() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding COMMON_FLAGS ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding COMMON_FLAGS ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/02_COMMON_FLAGS_${BOARD}"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-CFLAGS() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding CFLAGS ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding CFLAGS ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/03_CFLAGS-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-CHOST() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding CHOST for ${TUPLE1} ${ENV_TYPE} ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding CHOST for ${TUPLE1} ${ENV_TYPE} ..."
     # append the version for both TUPLE1 (i.e. arch) and ENV_TYPE (crossbuild/chroot) version of this
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/04_CHOST-${TUPLE1}.${ENV_TYPE}"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-MAKEOPTS_header() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding MAKEOPTS_header ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding MAKEOPTS_header ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/05_MAKEOPTS_header-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 # 20260407 - converted to MAKEOPTS formula in header above
 #add-MAKEOPTS() {
-#    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-#    j_msg -${notice} -p -n "adding MAKEOPTS for ${BOARD} ..."
+#    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+#    j_msg "-${notice}" -p -n "adding MAKEOPTS for ${BOARD} ..."
 #    add-part "${MAKE_CONF_PARTS_DIR%/}/06_MAKEOPTS_${BOARD}"
-#    result=$? ; right_status $result ${notice} ; return $result
+#    result=$? ; right_status "$result" "${notice}" ; return "$result"
 #}
 
 add-ACCEPT_KEYWORDS() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding ACCEPT_KEYWORDS for ${TUPLE1} ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding ACCEPT_KEYWORDS for ${TUPLE1} ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/07_ACCEPT_KEYWORDS-${TUPLE1}"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-ACCEPT_LICENSE() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding ACCEPT_LICENSE ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding ACCEPT_LICENSE ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/08_ACCEPT_LICENSE-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-FEATURES() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding FEATURES ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding FEATURES ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/09_FEATURES-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-DIRS() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding DIRS ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding DIRS ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/10_DIRS-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-LANGUAGE() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding LANGUAGE ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding LANGUAGE ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/11_LANGUAGE-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-INPUT_DEVICES() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding INPUT_DEVICES for ${BOARD} ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding INPUT_DEVICES for ${BOARD} ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/12_INPUT_DEVICES_common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-VIDEO_CARDS() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding VIDEO_CARDS for ${BOARD} ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding VIDEO_CARDS for ${BOARD} ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/13_VIDEO_CARDS_${BOARD}"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-INSTALL_MASK() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding INSTALL_MASK ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding INSTALL_MASK ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/14_INSTALL_MASK-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 
 add-USE() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
 
-    j_msg -${notice} -p -n "adding  USE flags for ${SYS_TYPE} ${ENV_TYPE} ..."
+    j_msg "-${notice}" -p -n "adding  USE flags for ${SYS_TYPE} ${ENV_TYPE} ..."
     # append the version for both SYS_TYPE (headless/desktop) and ENV_TYPE (crossbuild/chroot) version of this
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/15_USE-${SYS_TYPE}.${ENV_TYPE}"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-GRUB_PLATFORMS() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding GRUB_PLATFORMS for ${BOARD} ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding GRUB_PLATFORMS for ${BOARD} ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/16_GRUB_PLATFORMS_${BOARD}"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 add-MIRRORS() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "adding MIRRORS ..."
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "adding MIRRORS ..."
     add-part "${MAKE_CONF_PARTS_DIR%/}/00_BLANK_LINE" && \
     add-part "${MAKE_CONF_PARTS_DIR%/}/17_MIRRORS-common"
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 post-file() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
     PROCEED=$TRUE
-    j_msg -${notice} -p -n "copying draft"
-    if [ -e "${OUT_FILE}" ] && [ ! ${OVER_WRITE} ] ; then
-        # same-named file already exists, and OVER_WRITE=$FALSE, so confirm with user before writing
-        j_msg -${notice} -mp   # severity-aware newline; was otherwise waiting from j_msg -${notice} -p -n above
-        j_msg -${notice} -p "${OUT_FILE}"
+    j_msg "-${notice}" -p -n "copying draft"
+    if [ -e "${OUT_FILE}" ] && [ ! "${OVER_WRITE}" ] ; then
+        # same-named file already exists, and OVER_WRITE=$FALSE, so confirm with tool_user before writing
+        j_msg "-${notice}" -mp   # severity-aware newline; was otherwise waiting from j_msg "-${notice}" -p -n above
+        j_msg "-${notice}" -p "${OUT_FILE}"
         yns_prompt "already exists; overwrite?"
         [[ "${response:0:1}" != [yY] ]] && PROCEED=$FALSE
     fi
-    if [ ${PROCEED} ] ; then
+    if [ "${PROCEED}" ] ; then
         z=$(dirname "${OUT_FILE}")
         # create directory if needed
         if [ -d "${z}" ] ; then
-            j_msg -${notice} -mp -n " (dir ${BGon}exists${Boff})"
+            j_msg "-${notice}" -mp -n " (dir ${BGon}exists${Boff})"
         else
-            mkdir -p "${z}" && chown -f -R "${user}:${user}" "${z}"; result=$?
+            mkdir -p "${z}" && chown -f -R "${tool_user}:${tool_user}" "${z}"; result=$?
             if [ "$result" -eq 0 ] ; then
-                j_msg -${notice} -mp -n " (dir ${BMon}created for ${user}${Boff})"
+                j_msg "-${notice}" -mp -n " (dir ${BMon}created for ${tool_user}${Boff})"
             else
                 die "failed to mkdir -p ${z}"
            fi  # mkdir result
         fi
         # copy file to final
         cp -a "${DRAFT_FILE}" "${OUT_FILE}"
-        handle_result $? "copied" "" ${notice} || die "failed to copy draft to final"
+        handle_result $? "copied" "" "${notice}" || die "failed to copy draft to final"
         # remove draft file
         rm -f "${DRAFT_FILE}" || die "failed to rm ${DRAFT_FILE}"
     fi
-    right_status $? ${notice} ; return $?
+    right_status $? "${notice}" ; return $?
 }
 
 set-ownership() {
-    j_msg -${debug} -p "inside ${FUNCNAME[0]}"
-    j_msg -${notice} -p -n "setting ownership of \${OUT_FILE}"
-    chown -f "${user}:${user}"  "${OUT_FILE}"
-    handle_result $? "" "" ${notice}
+    j_msg "-${debug}" -p "inside ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p -n "setting ownership of \${OUT_FILE}"
+    chown -f "${tool_user}:${tool_user}"  "${OUT_FILE}"
+    handle_result $? "" "" "${notice}"
     return $?
 }
 
@@ -622,8 +652,8 @@ set-ownership() {
 checkroot
 separator "${PN}" "$(hostname)"
 [ $# -ne 2 ] && usage
-myBOARD=$1
-myCONFIG=$2
+myBOARD="$1"
+myCONFIG="$2"
 
 # basic common approach -
 # initialize variables (local function)
@@ -636,31 +666,31 @@ myCONFIG=$2
 initialize_variables || die "Failed to initialize_variables"
 
 # local validation, configuration, and variable assignment (local function(s))
-if ! $(validate_board) ; then j_msg -${err} "Failed to validate_board"; usage; fi
-validate_target ${BOARD} || die "failed to validate_target"
+if ! validate_board ; then j_msg "-${err}" "Failed to validate_board"; usage; fi
+validate_target "${BOARD}" || die "failed to validate_target"
 
 # identify TUPLE1 - used to pick CFLAGS, etc
-j_msg -${notice} -p -n "extracting TUPLE1 from TARGET ..."
+j_msg "-${notice}" -p -n "extracting TUPLE1 from TARGET ..."
 # work-around 2 for generic-amd64, for now
-if [[ ${BOARD} == "generic-amd64" ]] ; then
+if [[ "${BOARD}" == "generic-amd64" ]] ; then
     TUPLE1="amd64"
 else
     TUPLE1=$(printf '%s\n' "${TARGET}" | cut -d'-' -f1)
 fi
-handle_result $? "${TUPLE1}" "failed" ${notice}
+handle_result $? "${TUPLE1}" "failed" "${notice}"
 
 #display_configuration || die "Failed to display_configuration"
 show_config || die "Failed to display_configuration"
-j_msg -${notice} -mp ""   # severity-aware newline
-msg="NOTE: $(status_color ${INTERACTIVE})INTERACTIVE${Boff}, ${LBon}SYS_TYPE${Boff}"
-msg+=", ${LBon}ENV_TYPE${Boff}, ${LBon}OUT_FILE${Boff}"
-msg+=", and $(status_color ${OVER_WRITE})OVER_WRITE${Boff} are configured"
-j_msg -${notice} -p "${msg}\n(and may be modified) in \$config_file"
+j_msg "-${notice}" -mp ""   # severity-aware newline
+msg="NOTE: $(status_color "${INTERACTIVE}")INTERACTIVE${Boff}, ${BCon}SYS_TYPE${Boff}"
+msg+=", ${BCon}ENV_TYPE${Boff}, ${BCon}OUT_FILE${Boff}"
+msg+=", and $(status_color "${OVER_WRITE}")OVER_WRITE${Boff} are configured"
+j_msg "-${notice}" -p "${msg}\n(and may be modified) in \$config_file"
 # sanity check configuration
 sanity_check || die "Failed sanity_check"
-j_msg -${notice} -mp ""   # severity-aware newline
-[ $INTERACTIVE ] && confirm_continue_or_exit
-j_msg -${notice} -mp ""   # severity-aware newline
+j_msg "-${notice}" -mp ""   # severity-aware newline
+[ "$INTERACTIVE" ] && confirm_continue_or_exit
+j_msg "-${notice}" -mp ""   # severity-aware newline
 
 
 separator "${PN}" "(build make.conf)"
@@ -685,5 +715,5 @@ add-MIRRORS || die "failed to add-MIRRORS"
 post-file || die "failed to post-file"
 set-ownership || die "failed to set-ownership"
 
-j_msg -${notice} -p "${PN} Complete"
-j_msg -${notice} -mp ""   # severity-aware newline
+j_msg "-${notice}" -p "${PN} Complete"
+j_msg "-${notice}" -mp ""   # severity-aware newline

@@ -1,6 +1,14 @@
-# NOTE: from this (tools) directory, run one of the executable tools described below
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
 
-# contents of ~/myUtilities/joetoo-base/joetoo-platform-meta/tools --
+# NOTE: from this (tools) directory, run one of the executable tools described below
+#
+# cd joetoo-upstream/joetoo-base/joetoo-platform-meta/tools
+# sudo parallel-assemble-make-conf-all
+#
+
+# contents of ~/joetoo-upstream/joetoo-base/joetoo-platform-meta/tools --
 
 # assemble-make-conf - builds make.conf for one board, based on one config ( must be root, to mktemp )
 

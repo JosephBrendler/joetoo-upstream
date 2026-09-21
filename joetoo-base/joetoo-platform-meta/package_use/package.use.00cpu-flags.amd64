@@ -1,3 +1,7 @@
+# Copyright 2018-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 # there are so many amd64 platforms that I'm not going to set this by defalut
 # populate properly with something like this --
 #   cpuid2cpuflags >> /etc/portage/package.use/00cpu_flags
