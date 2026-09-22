@@ -63,13 +63,14 @@ cleanup-staging() {
     esac
     # cleanly remove STAGING_DIR recursively if it exists
     if [ -d "$STAGING_DIR" ]; then
-        j_msg "-${notice}" -p -n "Cleaning up STAGING_DIR: [$STAGING_DIR] ..."
         rm -rf -- "$STAGING_DIR" 2>/dev/null || return 2
         STAGING_DIR=""
     else
          j_msg "-${err}" -p "STAGING_DIR: [$STAGING_DIR] is not a directory; aborting cleanup"
          return 1
     fi
+    j_msg "-${debug}" -p "${FUNCNAME[0]} complete, returning exit code [0]"
+    return 0
 }
 # @usage cleanup-staging
 # @ret 0 - staging directory removed, or no staging directory exists
@@ -572,7 +573,7 @@ create-new-tarball() {
     handle_result "$result" "" "" "${notice}" || die "failed to build tarball"
 
     # clean up safely
-    j_msg "-${notice}" -p -n "cleaning up staging dir ..."
+    j_msg "-${notice}" -p -n "Cleaning up STAGING_DIR: [$STAGING_DIR] ..."
     if cleanup-staging; then result=0; else result=$?; fi
     handle_result "$result" "" "" "${notice}" || \
         { j_msg "-${err}" -p "failed to clean staging dir [${STAGING_DIR}]; result: [$result]"; return 1 ; }

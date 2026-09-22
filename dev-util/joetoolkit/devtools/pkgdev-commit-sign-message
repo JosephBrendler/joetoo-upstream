@@ -79,6 +79,8 @@ pkgdev-commit-sign-message() # (BASH) pkgdev-commit-sign-message - prepare, QA, 
 {   j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
     # (egencache; create local commit, signed-off and signed, with message)
     local result=0
+    local rem=""   #...# remnant of parameter expansion
+    local package=""   # derived from parameter expansion using pwd and $joetoo_repository
     # default to set but empty message
     local _pcsm_msg="${1:-}"
 
@@ -104,7 +106,7 @@ pkgdev-commit-sign-message() # (BASH) pkgdev-commit-sign-message - prepare, QA, 
     if [[ -n "$(git ls-files --deleted --modified --others --exclude-standard)" ]]; then result=0; else result=1; fi
     handle_result "$result" "no unstaged changes found; result [$result]" \
         "unstaged changes found; result [$result]" "$notice" || \
-        big-git-rm-add-list-handler
+            big-git-rm-add-list-handler "$package"
     confirm_continue_or_exit
 
     # create a unique test file to sign for this run (or fail)
@@ -177,6 +179,14 @@ checknotroot
 # guard - ensure running from root of ebuild repository b/c pkgdev commit --all stages changes in $PWD only
 [[ "$PWD" == "$joetoo_repository" || "$PWD" == "$joetoo_repository/"* ]] || \
     { j_msg "-${err}" -p "Error: $PN must be run from inside joetoo_repository [$joetoo_repository]"; exit 1 ; }
+
+rem="${PWD#"${joetoo_repository%/}/"}"   # strip joetoo_repository from prefix to get repo-root relative path
+rem2="${rem#*/}"   #...................# try to strip first dir (category) from prefix, leaving category-relative path
+if [[ "$rem2" == "$rem" ]]; then
+    package="eclass"   #...............# there was no additional / to strip so this is above package level
+else
+    package="${rem%%/*}"   #...........# strip any remaining dir/file names from suffix leaving package
+fi
 
 separator "$(hostname)" "${PN}-${BUILD}"
 
