@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 wipe_device() # (LINUX) use dd to fill target device $1 with random data
 { ret=0

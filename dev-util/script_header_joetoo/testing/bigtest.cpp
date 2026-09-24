@@ -1,9 +1,19 @@
+// bigtest.cpp - C++ std::string test/example program
+//
+// Derived from instructional example code published by YoLinux.com.
+// YoLinux states that its C/C++ source-code snippets are made available
+// as Public Domain unless otherwise noted.
+// Source: https://www.yolinux.com/TUTORIALS/LinuxTutorialC++StringClass.html
+// Terms:  https://www.yolinux.com/YoLinux-Terms.html
+//
+// compile with:  g++ -Wall -Wextra -pedantic -o bigtest bigtest.cpp
+
 #include <string>
 #include <iostream>
 
 using namespace std;
 
-main()
+int main()
 {
    string a("abcd efg");
    string b("xyz ijk");

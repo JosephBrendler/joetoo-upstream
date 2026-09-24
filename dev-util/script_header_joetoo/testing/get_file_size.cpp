@@ -1,3 +1,11 @@
+// get_file_size.cpp - demonstrate obtaining a file size with std::ifstream
+//
+// Derived from example code in the cplusplus.com C++ file I/O tutorial:
+//   https://cplusplus.com/doc/tutorial/files/
+//
+// Retained in this package for testing/reference purposes.
+// Original authorship and licensing remain with the upstream source.
+
 // obtaining file size
 #include <iostream>
 #include <fstream>

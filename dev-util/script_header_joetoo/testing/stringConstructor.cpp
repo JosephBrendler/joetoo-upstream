@@ -1,4 +1,16 @@
-// string constructor
+/*
+ * stringConstructor.cpp - std::string constructor test
+ *
+ * Derived from example code in the cplusplus.com std::string constructor
+ * reference:
+ *   https://cplusplus.com/reference/string/string/string/
+ *
+ * Locally modified by Joseph Brendler for testing/reference purposes.
+ * Original authorship and licensing remain with the upstream source.
+ *
+ * compile with: g++ stringConstructor.cpp -o stringConstructor
+ */
+
 #include <iostream>
 #include <string>
 

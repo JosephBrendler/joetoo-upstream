@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # strip_d_lines.sh  - parse the content of input file $1
 # line for line, echo content but eliminate aty d_ "arg" statements
 # assumes input comes from a "grep -n ',pattern>'" command so each line is numbered:

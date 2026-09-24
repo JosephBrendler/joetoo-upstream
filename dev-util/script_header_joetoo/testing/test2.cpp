@@ -1,6 +1,6 @@
 #include <iostream>
-#include <cstdio>
 #include <string>
+#include <cstdio>
 #include "colorHeader.h"
 
 using namespace std;
@@ -13,7 +13,7 @@ void demo( bool yesno )
     cout << "unbold" << BY_ON << " bold yellow " << B_OFF << "unbold" << '\n';
     cout << "unbold" << BB_ON << " bold blue   " << B_OFF << "unbold" << '\n';
     cout << "unbold" << BM_ON << " bold mag    " << B_OFF << "unbold" << '\n';
-    cout << "unbold" << LB_ON << " bold lblue  " << B_OFF << "unbold" << '\n';
+    cout << "unbold" << BC_ON << " bold lblue  " << B_OFF << "unbold" << '\n';
     cout << "unbold" << BW_ON << " bold white  " << B_OFF << "unbold" << '\n';
     cout << "unbold" << " un-bold white  " << "unbold" << '\n';
   }
@@ -27,6 +27,6 @@ int main ()
    demo ( true );
 
    cout << "\nthis is a " << BM_ON << "cout " << BG_ON << "test," << B_OFF << " now complete.\n";
-   printf ( "this is a %sprintf%s test, %snow complete.\n", BM_ON, BG_ON, B_OFF );
+   printf ( "this is a %sprintf%s test, %snow complete.\n", BB_ON.c_str(), BG_ON.c_str(), B_OFF.c_str() );
 }
 

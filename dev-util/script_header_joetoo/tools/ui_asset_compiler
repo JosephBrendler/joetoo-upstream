@@ -1,0 +1,388 @@
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# ui_asset_compiler - compile static terminal/UI assets, UTF-8 assets, and SED_LOG_FILTER
+
+# references:
+#    https://unicode.org/emoji/charts/full-emoji-list.html
+#    https://unicode.org/emoji/charts/emoji-list.html
+#    https://www.unicode.org/Public/18.0.0/emoji/emoji-sequences.txt
+#    Copies of these and other resources can be found at /usr/share/script_header_joetoo/unicode_data/
+#    Associated license can be found at /usr/share/licenses/script_header_joetoo/LICENSES/
+
+# Transition Strategy -
+# extract script_header_joetoo precook logic adapted into tools/ui_asset_compiler
+# compiler emits script_header_joetoo_uiassets
+# verify generated values against current runtime precooker
+# update script_header_joetoo to source new headers in correct order
+# remove obsolete runtime precook/cache code from script_header_joetoo
+
+# Strategic choices -
+#  1 - ui_asset_compiler emits *static ANSI/UI assignments itself
+#      (the same set of assets that are currently "precooked" by script_header_joetoo)
+#  2 - quoting/serialization rules for generated shell assignments (TBD)
+#
+#  3 - ui_asset_compiler may assemble SED_LOG_FILTER in stages, but its final form is emitted for
+#      persistent storage in script_header_joetoo_uiassets as a single block, in readable form
+#  4 - idx_<character> assignments are generated numeric values - the index position of <character>
+#      within the registry (this is so one can call j_msg -M $idx_hammer instead of
+#      j_msg -M "$(idx_of_emoji "hammer")" for example)
+#      (note: this may not be a requirement after j_msg is modified to take a multibyte argument for -M (deferred))
+#  5 - script_header_joetoo must source script_header_joetoo_unicode and
+#      script_header_joetoo_uiassets after all of their prerequisites are defined
+#      and before the first code that consumes anything they provide
+
+# UI Asset Heirarchy -
+#  three levels of obstraction
+#  1 - the full universe of ansi controls and unicode characters
+#      source: .txt and .html files distributed with unicode license
+#  2 - the subset of unicode characters that can be rendered by uecho $<name> and emoji_safe $<name>
+#      source: script_header_joetoo_unicode variable assignments of hex code points (subset of 1 above)
+#  3a - the subset of ansi controls and unicode characters that have been pre-cooked and can be rendered
+#      directly (e.g. by echo $bin_<name>) Note: could be as large as 2, but would make filtering take longer
+#  3b - the subset of ansi controls and unicode characters that have been pre-cooked AND registered so that they
+#      can be rendered by j_msg -M <idx> Note: could be as large as 2, but would make indexing take longer
+#      source: script_header_joetoo_uiassets; registries index these and map each to substitute text for logging
+
+# compiler task-ordering - to prevent compound character mangling by simple-character filter and optimize indexing/filtering
+#    complete ANSI escape sequences
+#    isolated terminal/control bytes
+#    emoji
+#    box chars
+#    named zero-width/control Unicode
+#    inactive Unicode fallback
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+
+#-----[ variables ]--------------------------------------------------
+
+user="joe"
+perms="0644"   # permissions for output files
+sources_repository="/home/${user}/joetoo-upstream"
+package_dir="${sources_repository%/}/dev-util/script_header_joetoo"
+tools_dir="${package_dir%/}/tools"
+output_registries="script_header_joetoo_registries"
+output_uiassets="script_header_joetoo_uiassets"
+
+declare -a temp_files=(
+    ansi_tmp
+    bin_tmp
+    idx_tmp
+    log_filter_tmp
+    registry_tmp
+    rollup_tmp
+)
+temp_dir=""   # placeholder to be assigned below
+
+#-----[ functions ]--------------------------------------------------
+
+cleanup-tmp() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # protect against accidental corruption of temp_dir
+    case "$temp_dir" in
+        /tmp/tmp_*) ;;   #........# this is ok to clean up
+        ""        ) return 0 ;;   # this is nothing to clean up
+        *         ) j_msg "-${err}" -p "refusing to remove unexpected temp dir [$temp_dir]"; return 1 ;;
+    esac
+    # cleanly remove temp_dir recursively if it exists
+    if [ -d "$temp_dir" ]; then
+        rm -rf -- "$temp_dir" 2>/dev/null || return 2
+        temp_dir=""
+    else
+         j_msg "-${err}" -p "temp_dir: [$temp_dir] is not a directory; aborting cleanup"
+         return 1
+    fi
+    j_msg "-${debug}" -p "${FUNCNAME[0]} complete, returning exit code [0]"
+    return 0
+}
+# @usage cleanup-tmp
+# @ret 0 - staging directory removed, or no staging directory exists
+# @ret 1 - temp_dir is unsafe or does not identify an existing directory
+# @ret 2 - rm failed to remove an otherwise valid staging directory
+# @deps j_msg
+# @vars temp_dir - staging directory pathname; cleared after successful removal
+# @rule only removes temp_dir values matching /tmp/tmp.*
+# @note safe for repeated invocation, including cleanup hooks and EXIT trap
+
+usage() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${err}" -p "${BGon}usage: ${PN}"
+    j_msg "-${notice}" -p "${BYon}Notes:${Boff}"
+    j_msg "-${notice}" -m "  ${Con}output_registries: [$output_registries]: ${Boff}"
+    j_msg "-${notice}" -m "  ${Con}output_uiassets: [$output_uiassets]: ${Boff}"
+    exit 1
+}
+# @usage usage
+
+setup_temp_dir() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0
+    # set up temp_dir
+    j_msg "-${info}" -m -n "making temp_dir ..."
+    if temp_dir=$(mktemp -d -t tmp_joetoo_assets.XXXXXX); then result=0; else result=$?; fi
+    right_status "$result" "$info"
+    # set up temp files
+    for file in "${temp_files[@]}"; do
+        # use declare to dynamically set the variable name held by $file -g to make them global
+        declare -g "$file=$(mktemp "${temp_dir}/${file}.XXXXXX")"
+    done
+}
+
+compile_active_registry() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local array_name="$1"
+    local registry_name="$2"
+    # create a local nameref (asset_map) pointing to the array named by the variable array_name
+    local -n asset_map="$array_name"
+    local uchar
+    local oct_vals
+    local idx=1
+
+    j_msg "-${debug}" -p "array_name: [$array_name]"
+    j_msg "-${debug}" -p "registry_name: [$registry_name]"
+    j_msg "-${debug}" -p "\${#asset_map[@]}: [${#asset_map[@]}]"
+    j_msg "-${debug}" -p "\${!asset_map[@]}: [${!asset_map[@]}]"
+
+    j_msg "-${notice}" -p "building ${registry_name} ..."
+    printf '%s="\n' "$registry_name" >> "$registry_tmp" ||
+        die "failed to open registry [$registry_name]"
+    # read array and generate output for idx, bin, and registry
+    idx=1   # 1-indexed
+    # iterate through the keys with !var, arrays are keyed on the text name of the characters (e.g. hammer)
+    for uchar in "${!asset_map[@]}"; do
+        j_msg "-${info}" -p -n "creating idx, bin, and registry records for idx [$idx]; uchar [$uchar]"
+        # make script_header_joetoo_uiassets line for idx_<uchar>
+        printf 'idx_%s=%s%b%s\n' "${uchar}" "'" "$idx" "'" 2>/dev/null >> "$idx_tmp" || \
+            die "failed to render [idx_$uchar]"
+        # make script_header_joetoo_uiassets line for "bin_<uchar>='<byte_sequence>'"
+        LC_CTYPE=en_US.utf8 printf 'bin_%s=%s%b%s\n' "${uchar}" "'" "${!uchar}" "'" 2>/dev/null >> "$bin_tmp" || \
+            die "failed to render [bin_$uchar]"
+        # make registry line for uchar  *** need to get subst (e.g. "ok" for check_mark
+        # format: 2${US}check_mark${US}$check_mark${US}Ok
+        print_args=( "$idx" "\${US}" )   #..............# index of record and universal separator (${US})
+        print_args+=( "${uchar}" "\${US}" )   #.........# this unicode character and ${US}
+        print_args+=( "\${${uchar}}" "\${US}" )   #.....# form the variable naming the hex codepoint and ${US}
+        print_args+=( "${asset_map[${uchar}]}" )   # the ascii text to substitute in log data stream filtering
+        printf '%s%s%s%s%s%s%s\n' "${print_args[@]}" 2>/dev/null >> "$registry_tmp" || \
+            die "failed to build registry entry for [$uchar]"
+        # make SED_LOG_FILTER rule: s/binary_emoji/text_translation/g;
+        oct_vals=$(emit_utf8_from_hex "${!uchar}")
+        printf '    s/%b/%s/g;\n' "${oct_vals}" "${asset_map[${uchar}]}" >> "$log_filter_tmp" || \
+            die "failed to build log_filter entry for [$uchar]"
+        # increment index
+        (( idx++ ))
+        right_status 0 "$info"
+    done
+    # add closing lines for registry
+    j_msg "-${notice}" -p -n "closing ${registry_name} ..."
+    if printf '%s\n\n' '"' >> "$registry_tmp" ; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to build ${registry_name}"
+    return 0
+}
+
+compile_ansi_controls() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # loop through named chars in associative array of ansi controls and write e.g. BEL='<007_byte>' to ansi temp file
+    for ctrl in "${!ansi_controls[@]}"; do
+        j_msg "-${info}" -p -n "creating bytecode for ansi_control ..."
+        if printf '%s=%s%b%s\n' "${ctrl}" "'" "${ansi_controls[${ctrl}]}" "'" >> "$ansi_tmp" 2>/dev/null; then result=0;else result=$?; fi
+        handle_result "$result" '' '' "$info" || die "failed to render ctrl [${!ctrl}]"
+    done
+
+    # start building SED_LOG_FILTER with ansi controls and escapes
+    # consolidate initial rules     ansi                 controls                           escapes
+    #  SED_LOG_FILTER="s/${ESC}\[[0-9;]*[mK]//g; s/[${SO}${SI}${BEL}${ESC}]//g; s/[${BS}${HT}${LF}${VT}${FF}${CR}${DEL}>
+    # note : ${ESC}\[ is redundant - (backslash IS ESC) (needs to be ${ESC}[ then the char class [...]
+    #  SED_LOG_FILTER="s/${ESC}[[0-9;]*[mK]//g; s/[${SO}${SI}${BEL}${ESC}]//g; s/[${BS}${HT}${LF}${VT}${FF}${CR}${DEL}]>
+    # 20260423 - add cursor-movement filters to ansi part
+    printf 'SED_LOG_FILTER="\n' > "$log_filter_tmp"
+    # strip SGR, cursor colntrols --
+    # m - SGR (Select Graphic Rendition): Sets text attributes like foreground/background colors, bold, and styles
+    # K - EL (Erase in Line): Clears parts of the current line based on the cursor position
+    # A - CUU (Cursor Up): Moves the terminal cursor up by a specified number of lines
+    # B - CUD (Cursor Down): Moves the terminal cursor down by a specified number of lines
+    # C - CUF (Cursor Forward): Moves the terminal cursor right/forward by a specified number of columns
+    # D - CUB (Cursor Back): Moves the terminal cursor left/backward by a specified number of columns
+    # H - CUP (Cursor Position): Moves the terminal cursor to specific row and column coordinates
+    # f - HVP (Horizontal and Vertical Position): Moves the cursor identically to the H command
+    # s - SCP (Save Cursor Position): Saves the current coordinate position of the terminal cursor
+    # u - RCP (Restore Cursor Position): Returns the terminal cursor to the last saved position
+    # l - RM (Reset Mode): Disables private terminal settings, such as restoring the cursor visibility
+    # J - ED (Erase in Display): Clears parts of the screen or the entire terminal display window
+    printf '    s/%s[[0-9;]*[mKABCDHfsulJ]//g;\n' "${ESC}" >> "$log_filter_tmp"
+    # strip control characters --
+    # SO - Shift Out (\x0E): Switches the terminal character set to alternate/graphics mode
+    # SI - Shift In (\x0F): Switches the terminal character set back to standard ASCII mode
+    # BEL - Bell (\x07): Triggers the terminal's audible beep or visual flash alert
+    # ESC - Escape (\x1B): Removes standalone escape characters to prevent plain text corruption
+    printf '    s/[%s%s%s%s]//g;\n' "${SO}" "${SI}" "${BEL}" "${ESC}" >> "$log_filter_tmp"
+    # replace structural whitespace and erasure control characters with a single space (to preserve "word" separation)
+    # BS - Backspace (\x08): Replaces destructive cursor backsteps with a space to prevent text overlap
+    # HT - Horizontal Tab (\x09): Normalizes column spacing by converting tab blocks into regular spaces
+    # LF - Line Feed (\x0A): flattens raw Unix newlines into spaces to keep log events on a single line
+    # VT - Vertical Tab (\x0B): Converts legacy vertical line skips into standard horizontal spaces
+    # FF - Form Feed (\x0C): Clears page break signals and replaces them with a uniform space separator
+    # CR - Carriage Return (\x0D): Neutralizes carriage resets to prevent subsequent text from overwriting lines
+    # DEL - Delete (\x7F): Erases explicit backward-delete bytes while preserving the character boundaries
+    printf '    s/[%s%s%s%s%s%s%s]/ /g;\n' "${BS}" "${HT}" "${LF}" "${VT}" "${FF}" "${CR}" "${DEL}" >> "$log_filter_tmp"
+}
+
+source_hdr_files() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # include ansi controls assigned in binary byte form
+    j_msg "-${notice}" -p -n "Sourcing ansi_controls ..."
+    # shellcheck source=/home/joe/joetoo-upstream/dev-util/script_header_joetoo/tools/ansi_controls.hdr
+    if source "${tools_dir%/}/ansi_controls.hdr"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to source ansi_controls"
+
+    # source the associative array of *** ---[ zero width uchars ]--- *** unicode chars
+    j_msg "-${notice}" -p -n "Sourcing unicode_zeros names ..."
+    # shellcheck source=/home/joe/joetoo-upstream/dev-util/script_header_joetoo/tools/unicode_zeros.hdr
+    if source "${tools_dir%/}/unicode_zeros.hdr"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to source unicode_zeros.hdr"
+
+    # source the associative array of *** ---[ emojis ]--- *** unicode chars
+    j_msg "-${notice}" -p -n "Sourcing unicode_emojis names ..."
+    # shellcheck source=/home/joe/joetoo-upstream/dev-util/script_header_joetoo/tools/unicode_emojis.hdr
+    if source "${tools_dir%/}/unicode_emojis.hdr"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to source unicode_emojis.hdr"
+
+    # source the associative array of *** ---[ boxchars ]--- *** unicode chars
+    j_msg "-${notice}" -p -n "Sourcing unicode_boxchars names ..."
+    # shellcheck source=/home/joe/joetoo-upstream/dev-util/script_header_joetoo/tools/unicode_boxchars.hdr
+    if source "${tools_dir%/}/unicode_boxchars.hdr"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to source unicode_boxchars.hdr"
+
+    # source the *** ---[ inactives ]--- *** header - the unregistry itself defines char ranges to filter
+    j_msg "-${notice}" -p -n "Sourcing INACTIVE_UNICODE_UNREGISTRY ..."
+    # shellcheck source=/home/joe/joetoo-upstream/dev-util/script_header_joetoo/tools/unicode_inactives.hdr
+    if source "${tools_dir%/}/unicode_inactives.hdr"; then result=0; else result=$?; fi
+    right_status "$result" "$notice" || die "failed to source unicode_inactives.hdr"
+}
+
+initialize_output_files() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # initialize headings in registry tempfile
+    printf '%s\n' "#!/bin/sh" > "$registry_tmp"
+    printf '%s\n' "# Copyright 2015-2026 Joseph Brendler" >> "$registry_tmp"
+    printf '%s\n' "# SPDX-License-Identifier: GPL-3.0-or-later" >> "$registry_tmp"
+    printf '%s\n' "#" >> "$registry_tmp"
+    printf '%s\n' "# script_header_joetoo_registries - generated by ui_asset_compiler *** (do not edit) ***" >> "$registry_tmp"
+    printf '\n' >> "$registry_tmp"
+    # put the same heading in rollup tempfile
+    printf '%s\n' "#!/bin/sh" > "$rollup_tmp"
+    printf '%s\n' "# Copyright 2015-2026 Joseph Brendler" >> "$rollup_tmp"
+    printf '%s\n' "# SPDX-License-Identifier: GPL-3.0-or-later" >> "$rollup_tmp"
+    printf '%s\n' "#" >> "$rollup_tmp"
+    printf '%s\n' "# script_header_joetoo_uiassets - generated by ui_asset_compiler *** (do not edit) ***" >> "$rollup_tmp"
+    printf '\n' >> "$rollup_tmp"
+}
+
+compile_unregistry() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # create "unregistry" part of the registry file (strip comments and blank lines, leaving only the assignment lines
+    grep -v "^${W0}#" "${tools_dir%/}/unicode_inactives.hdr" | sed "/^${W0}$/d" >> "$registry_tmp"
+
+    # ingest the registry data as lines in an array (ignore blank lines from quoted file formatting)
+    readarray -t lines < <(printf '%s\n' "$INACTIVE_UNICODE_UNREGISTRY" | sed "/^${W0}$/d")
+    # read the line to assign hex start, end, subst (ignore idx field 1)
+    for line in "${lines[@]}"; do
+#        j_msg "-${debug}" -p "line: [$line]"
+        IFS="${US}" read -r _ h_start h_end subst <<< "$line"
+#        j_msg "-${debug}" -p "h_start: [$h_start]"
+#        j_msg "-${debug}" -p "h_end: [$h_end]"
+#        j_msg "-${debug}" -p "subst: [$subst]"
+        # use script_header_joetoo base conversion
+        start=$(h2d "$h_start"); end=$(h2d "$h_end")
+        j_msg "-${debug}" -p "start: [start]  end [$end]"
+        # interate through the sanitization range in decimal
+        for codepoint in $(seq "$start" "$end"); do
+            # convert current codepoint to hex
+            h_cp=$(d2h "$codepoint")
+#            j_msg "-${debug}" -p "h_cp: [$h_cp]"
+            # generate octal values representing bytes
+            oct_vals=$(emit_utf8_from_hex "\\U${h_cp}")
+            # cook the oct vals to make actual bytes
+            bin_val=$(printf '%b' "$oct_vals")
+            # make SED_LOG_FILTER rule: s/binary_emoji/text_translation/g; (note format does not need %b - bin_val is already interpreted)
+            printf '    s/%s/%s/g;\n' "${bin_val}" "${subst}" >> "$log_filter_tmp" || \
+                die "failed to build log_filter entry for unregistry value [$h_cp]"
+        done
+    done
+}
+
+#-----[ main script ]------------------------------------------------
+checknotroot
+
+# use script_header_joetoo _CLEANUP_HOOKS to enable die() to do this BEFORE issuing EXIT signal
+# so normal error handling runs cleanup-tmp w/o trap
+register_cleanup_hook cleanup-tmp || die "failed to register cleanup-tmp hook"
+
+# ensure temp staging dir gets removed in unhandled errors leading to EXIT
+trap cleanup-tmp EXIT
+
+separator "$(hostname)" "${PN}-${BUILD}"
+
+# guard - stop if not running from a category-level subdir of sources_repository
+[[ "$PWD" != "$tools_dir" ]] && \
+    { j_msg "-${err}" -p "Must run from tools dir: [$tools_dir];\n    PWD = [$(pwd)]"; usage ; }
+
+# make tempfiles
+setup_temp_dir || die "failed to setup_temp_dir"
+
+initialize_output_files || die "failed to initialize_output_files"
+
+source_hdr_files || die "failed to source header files"
+
+compile_ansi_controls || die "failed to compile_ansi_controls"
+
+compile_active_registry unicode_emojis ACTIVE_EMOJI_REGISTRY
+
+compile_active_registry unicode_boxchars ACTIVE_UI_BOX_REGISTRY
+
+# compile zero-width chars like VS16 *after those above so SED_LOG_FILTER can sub for above before stripping VS16
+# (in general compound sequences should precede simpler chars for this reason)
+compile_active_registry unicode_zeros ACTIVE_ZERO_WIDTH_REGISTRY
+
+compile_unregistry || die "failed to compile_unregistry"
+
+
+# close the SED_LOG_FILTER assignment
+j_msg "-${notice}" -p -n "closing SED_LOG_FILTER ..."
+if printf '%s\n\n' '"' >> "$log_filter_tmp" ; then result=0; else result=$?; fi
+right_status "$result" "$notice"
+
+# finalize registry
+chown "${user}:${user}" "$registry_tmp"
+chmod "$perms" "$registry_tmp"
+separator "${PN}-${BUILD}" "(new registries)"
+d_do cat "$registry_tmp" "$info"
+j_msg "-${notice}" -p "new registry header is ready (contiains $(wc -l < "$registry_tmp") lines)"
+j_msg "-${notice}" -p "About to overwrite ${package_dir%/}/script_header_joetoo_registries"
+confirm_continue_or_exit
+j_msg "-${notice}" -p "Writing with mv ..."
+if mv "$registry_tmp" "${package_dir%/}/script_header_joetoo_registries"; then result=0; else result=$?; fi
+right_status "$result" "$notice"
+
+# assemble script_header_joetoo_uiassets
+cat "$ansi_tmp" "$idx_tmp" "$bin_tmp" "$log_filter_tmp" >> "$rollup_tmp"
+chown "${user}:${user}" "$rollup_tmp"
+chmod "$perms" "$rollup_tmp"
+separator "${PN}-${BUILD}" "(new UI asset header)"
+d_do cat "$rollup_tmp"  "$info"
+j_msg "-${notice}" -p "new UI assets header is ready (contiains $(wc -l < "$rollup_tmp") lines)"
+j_msg "-${notice}" -p "About to overwrite ${package_dir%/}/${output_registries}"
+confirm_continue_or_exit
+j_msg "-${notice}" -p "Writing with mv ..."
+if mv "$rollup_tmp" "${package_dir%/}/${output_uiassets}"; then result=0; else result=$?; fi
+right_status "$result" "$notice"
+
+j_msg "-${notice}" -p "${BGon}Done${Boff} $bin_trophy"

@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 [ ! $# -eq 1 ] && echo "search term argument required (e.g. imx8mq)" && exit 1
 
 # assume bcm2712 is in every file we want to add $1 to (create list of those)

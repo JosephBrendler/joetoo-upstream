@@ -1,0 +1,14 @@
+#!/bin/sh
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# ui_asset_compiler is a development tool companion for script_header_joetoo
+# it replaces the legacy "precook_ui_assets" logic that has been internal to script_header_joetoo
+
+# the compiler enables production of the same ui assets in a child header to be chain-loaded by the
+# parent script_header_joetoo
+
+# the .hdr files provide developer-curated input for the compiler -> what assets are we compiling?
+
+# the archived files contain legacy code that has been removed from script_header_joetoo, now
+# that it is no longer required

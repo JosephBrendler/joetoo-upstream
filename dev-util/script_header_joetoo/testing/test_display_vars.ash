@@ -1,5 +1,8 @@
 #!/bin/sh
-# test_display_vars.ash v0.1.0 
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# test_display_vars.ash v0.1.0
 
 script_header_installed_dir=/home/joe/myUtilities/dev-util/script_header_joetoo
 

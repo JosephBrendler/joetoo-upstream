@@ -1,0 +1,35 @@
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# unicode_zerowidth.hdr - list of zero width unicode characters to include in registry, with substitute ascii text for logging
+
+# associative array (-A) keyed on char name, global scope (-g)
+declare -A -g unicode_zeros=()
+
+unicode_zeros[VS16]="[VS16]"
+unicode_zeros[VS15]="[VS15]"
+unicode_zeros[ZWJ]="[ZWJ]"
+unicode_zeros[ZWNJ]="[ZWNJ]"
+unicode_zeros[ZWS]="[ZWS]"
+unicode_zeros[WJ]="[WJ]"
+unicode_zeros[SHY]="[SHY]"
+unicode_zeros[CGJ]="[CGJ]"
+unicode_zeros[LRO]="[LRO]"
+unicode_zeros[RLO]="[RLO]"
+unicode_zeros[LRE]="[LRE]"
+unicode_zeros[RLE]="[RLE]"
+unicode_zeros[PDF]="[PDF]"
+unicode_zeros[LRI]="[LRI]"
+unicode_zeros[RLI]="[RLI]"
+unicode_zeros[FSI]="[FSI]"
+unicode_zeros[PDI]="[PDI]"
+unicode_zeros[BOM]="[BOM]"
+unicode_zeros[LRM]="[LRM]"
+unicode_zeros[RLM]="[RLM]"
+unicode_zeros[FITZ_1_2]="[SKIN12]"
+unicode_zeros[FITZ_3]="[SKIN3]"
+unicode_zeros[FITZ_4]="[SKIN4]"
+unicode_zeros[FITZ_5]="[SKIN5]"
+unicode_zeros[FITZ_6]="[SKIN6]"
+

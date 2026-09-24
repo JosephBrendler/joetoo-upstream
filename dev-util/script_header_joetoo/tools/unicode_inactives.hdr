@@ -1,0 +1,15 @@
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# unicode_inactives.hdr - this "unregistry" header is different from the registries - its purpose is to specify ranges to be
+#    sanitized (substituted).  e.g. every char between FE00 and FE0E will be substituted with "[VS]"
+
+# define a set of unicode character ranges for use with _precook_unregistry (sanitation)
+INACTIVE_UNICODE_UNREGISTRY="
+1${US}FE00${US}FE0E${US}[VS]
+2${US}200C${US}200D${US}[ZW]
+3${US}200E${US}2069${US}[PUNC]
+4${US}FFF9${US}FFFB${US}[AN]
+5${US}2600${US}26FF${US}[LEGACY]
+"

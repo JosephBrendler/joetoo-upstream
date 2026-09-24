@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 #[ -z $1 ] && echo "please provide preface and/or title" && exit 1
 #source ./script_header_joetoo
 #script_header_installed_dir=/home/joe/myUtilities/dev-util/script_header_joetoo

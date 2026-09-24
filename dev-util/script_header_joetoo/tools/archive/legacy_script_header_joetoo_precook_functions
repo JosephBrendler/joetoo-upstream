@@ -1,0 +1,730 @@
+#!/bin/sh
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+_init_ascii_controls() # (POSIX) precook the set of emoji considered most "active" for optimizatoin
+{ iac_ret=0; SED_LOG_FILTER=""
+  # initialize global ASCII controls
+  BEL=$(printf '\007')  # h:0x07, d:07;  only when you literally need bells and whistles
+  BS=$(printf  '\010')  # h:0x08, d:08;  oves cursor one column left; does not erase
+  HT=$(printf  '\011')  # h:0x09, d:09;  equiv \t (horizontal tab)
+  LF=$(printf  '\012')  # h:0x0A, d:10;  (linefeed)
+  VT=$(printf  '\013')  # h:0x0B, d:11   (vertical tab; rarely used)
+  FF=$(printf  '\014')  # h:0x0C, d:12;  equiv \f (form feed; page break in printers)
+  CR=$(printf  '\015')  # h:0x0D, d:13;  equiv \r (carriage return; moves cursor to column 0)
+  ESC=$(printf '\033')  # h:01Bx, d:27;  see CSI, ESCon, ESG0 (introduces ANSI/VT control sequences)
+  US=$(printf  '\037')  # h:0x1F, d:31;  Unit Separator (an ASCII "file separator"; ideal delimiter -never appears in normal text)
+  DEL=$(printf '\177')  # h:0x7F, d:127; delete (destructive delete on paper tape; now a control character)
+  EOF=$(printf '\032')  # h:0x1A, d:26;  End of File (aka SUB, CTRL-Z; but note: the byte itself is not an EOF character in Unix)
+  SO=$(printf  '\016')  # h:0x0E, d:14;  Shift Out (switch to G1 character set (e.g., line-drawing)
+  SI=$(printf  '\017')  # h:0x0F, d:15;  Shift In (switch back to G0 character set)
+
+  # consolidate initial rules   ansi                 controls                           escapes
+#  SED_LOG_FILTER="s/${ESC}\[[0-9;]*[mK]//g; s/[${SO}${SI}${BEL}${ESC}]//g; s/[${BS}${HT}${LF}${VT}${FF}${CR}${DEL}]/ /g; "
+  # note : ${ESC}\[ is redundant - ESC followed by ESC (needs to be ${ESC}[ then the char class [...]
+#  SED_LOG_FILTER="s/${ESC}[[0-9;]*[mK]//g; s/[${SO}${SI}${BEL}${ESC}]//g; s/[${BS}${HT}${LF}${VT}${FF}${CR}${DEL}]/ /g; "
+  # 20260423 - add cursor-movement filters to ansi part
+  SED_LOG_FILTER="s/${ESC}[[0-9;]*[mKABCDHfsulJ]//g;"
+  SED_LOG_FILTER="${SED_LOG_FILTER} s/[${SO}${SI}${BEL}${ESC}]//g;"
+  SED_LOG_FILTER="${SED_LOG_FILTER} s/[${BS}${HT}${LF}${VT}${FF}${CR}${DEL}]/ /g; "
+  # note: _precook_ui_assets uses _precook_registry and _precook_unregistry to appends rules for each registry/unregistry
+  return $iac_ret
+}
+_init_ascii_controls
+
+
+
+#-----[ Global Active Emoji Registry ]---------------------------------------
+# format: "index:name:hexvalue:log_translation" (Space or Newline separated)
+# index (1-31) maps to the bitmask field [10-14] extracted in emit
+# name is used for the bin_<name> variables and log filtering
+# hexvalue is the asset by referneced by the source
+#   codepoint of the variable by the same name
+# log_translation is an "ascii-art" or "ascii-moji"
+# IMPORTANT: this assignment must FOLLOW the raw hex definitions sourced above,
+#   and it must PRECEDE the emit_utf8_from_hex and _precook_ui_assets function definitions below
+
+# start with zero-width unicode characters
+ACTIVE_ZERO_WIDTH_REGISTRY="   
+1${US}VS16${US}$VS16${US}[VS16]
+2${US}VS15${US}$VS15${US}[VS15]
+3${US}ZWJ${US}$ZWJ${US}[ZWJ]   
+4${US}ZWNJ${US}$ZWNJ${US}[ZWNJ]
+5${US}ZWS${US}$ZWS${US}[ZWS]
+6${US}WJ${US}$WJ${US}[WJ]   
+7${US}SHY${US}$SHY${US}[SHY]
+8${US}CGJ${US}$CGJ${US}[CGJ]
+9${US}LRO${US}$LRO${US}[LRO] 
+10${US}RLO${US}$RLO${US}[RLO]
+11${US}LRE${US}$LRE${US}[LRE]
+12${US}RLE${US}$RLE${US}[RLE]
+13${US}PDF${US}$PDF${US}[PDF]
+14${US}LRI${US}$LRI${US}[LRI]
+15${US}RLI${US}$RLI${US}[RLI]
+16${US}FSI${US}$FSI${US}[FSI]
+17${US}PDI${US}$PDI${US}[PDI]
+18${US}BOM${US}$BOM${US}[BOM]
+19${US}LRM${US}$LRM${US}[LRM]
+20${US}RLM${US}$RLM${US}[RLM]
+21${US}FITZ_1_2${US}$FITZ_1_2${US}[SKIN1]
+22${US}FITZ_3${US}$FITZ_3${US}[SKIN2]
+23${US}FITZ_4${US}$FITZ_4${US}[SKIN3]
+24${US}FITZ_5${US}$FITZ_5${US}[SKIN4]
+25${US}FITZ_6${US}$FITZ_6${US}[SKIN5]
+
+
+# active emoji registry
+ACTIVE_EMOJI_REGISTRY="
+1${US}cross_mark${US}$cross_mark${US}!!
+2${US}check_mark${US}$check_mark${US}Ok
+3${US}check_mark_button${US}$check_mark_button${US}Ok
+4${US}no_entry${US}$no_entry${US}[NO_ENTRY]
+5${US}prohibited${US}$prohibited${US}[PROHIBITED]
+6${US}explosion${US}$explosion${US}[EXPLOSION]
+7${US}collision${US}$collision${US}[COLLISION]
+8${US}bomb${US}$bomb${US}[BOMB]
+9${US}hammer${US}$hammer${US}[WORK]
+10${US}hammer_and_wrench${US}$hammer_and_wrench${US}[PROCESS]
+11${US}wrench${US}$wrench${US}[WRENCH]
+12${US}gear${US}$gear${US}[GEAR]
+13${US}toolbox${US}$toolbox${US}[TOOLBOX]
+14${US}face_thinking${US}$face_thinking${US}[THINKING]
+15${US}magnifying_glass_left${US}$magnifying_glass_left${US}[SEARCH]
+16${US}magnifying_glass_right${US}$magnifying_glass_right${US}[SEARCH]
+17${US}face_grin${US}$face_grin${US}[:D]
+18${US}face_beam${US}$face_beam${US}[:D]
+19${US}face_grimace${US}$face_grimace${US}[:S]
+20${US}face_frown${US}$face_frown1${US}[:(]
+21${US}confetti${US}$confetti${US}[SUCCESS]
+22${US}trophy${US}$trophy${US}[WIN]
+23${US}uSUN${US}$uSUN${US}[CLEAR]
+24${US}uCLOUD${US}$uCLOUD${US}[IDLE]
+25${US}uRAIN${US}$uRAIN${US}[WARN]
+26${US}uTHUNDER${US}$uTHUNDER${US}[FAIL]
+27${US}uSNOW${US}$uSNOW${US}[HALT]
+28${US}uWIND${US}$uWIND${US}[FAST]
+29${US}tree_evergreen${US}$tree_evergreen${US}[WOODS]
+30${US}uBOOT${US}$uBOOT${US}[TRAIL]
+31${US}uMOUNTAIN${US}$uMOUNTAIN${US}[SUMMIT]
+32${US}uSUN_ALT${US}$uSUN_ALT${US}[CLEAR]
+33${US}uRAIN_WET${US}$uRAIN_WET${US}[WET]
+34${US}uSNOW_ICE${US}$uSNOW_ICE${US}[ICE]
+35${US}uFOG${US}$uFOG${US}[FOG]
+36${US}uWIND_EXP${US}$uWIND_EXP${US}[WIND]
+37${US}uCAMP${US}$uCAMP${US}[SHELTER]
+38${US}compass${US}$compass${US}[NAV]
+39${US}uBEAR${US}$uBEAR${US}[CAUTION]
+40${US}rocket${US}$rocket${US}[ROCKET]
+41${US}package${US}$package${US}[PACKAGE]
+42${US}seedling${US}$seedling${US}[SEEDLING]
+43${US}fern${US}$fern${US}[FERN]
+44${US}lady_bug${US}$lady_bug${US}[LADY_BUG]
+45${US}key${US}$key${US}[KEY]
+46${US}lock${US}$lock${US}[LOCK]
+47${US}fire${US}$fire${US}[FIRE]
+48${US}light_bulb${US}$light_bulb${US}[LIGHT_BULB]
+49${US}warning${US}$warning${US}[WARNING]
+50${US}construction${US}$construction${US}[CONSTRUCTION]
+51${US}sparkles${US}$sparkles${US}[SPARKLES]
+52${US}heart_red${US}$heart_red${US}[heart_red]
+53${US}heart_pink${US}$heart_pink${US}[heart_pink]
+54${US}heart_orange${US}$heart_orange${US}[heart_orange]
+55${US}heart_yellow${US}$heart_yellow${US}[heart_yellow]
+56${US}heart_green${US}$heart_green${US}[heart_green]
+57${US}heart_blue${US}$heart_blue${US}[heart_blue]
+58${US}heart_lightblue${US}$heart_lightblue${US}[heart_lightblue]
+59${US}heart_purple${US}$heart_purple${US}[heart_purple]
+60${US}heart_brown${US}$heart_brown${US}[heart_brown]
+61${US}heart_black${US}$heart_black${US}[heart_black]
+62${US}heart_white${US}$heart_white${US}[heart_white]
+63${US}axe${US}$axe${US}[axe]
+64${US}pickaxe${US}$pickaxe${US}[pickaxe]
+65${US}hammer_and_pick${US}$hammer_and_pick${US}[hammer_and_pick]
+66${US}shield${US}$shield${US}[shield]
+67${US}saw${US}$saw${US}[saw]
+68${US}screwdriver${US}$screwdriver${US}[screwdriver]
+69${US}nut_and_bolt${US}$nut_and_bolt${US}[nut_and_bolt]
+70${US}hook${US}$hook${US}[hook]
+71${US}magnet${US}$magnet${US}[magnet]
+72${US}ladder${US}$ladder${US}[ladder]
+73${US}shovel${US}$shovel${US}[shovel]
+74${US}broom${US}$broom${US}[broom]
+75${US}tree_deciduous${US}$tree_deciduous${US}[tree_deciduous]
+76${US}tree_palm${US}$tree_palm${US}[tree_palm]
+77${US}clover${US}$clover${US}[clover]
+78${US}fluttering_leaf${US}$fluttering_leaf${US}[fluttering_leaf]
+79${US}splatter${US}$splatter${US}[splatter]
+80${US}giftwrap${US}$giftwrap${US}[giftwrap]
+81${US}telephone${US}$telephone${US}[telephone]
+82${US}laptop${US}$laptop${US}[laptop]
+83${US}open_book${US}$open_book${US}[open_book]
+84${US}puzzle${US}$puzzle${US}[puzzle]
+85${US}chain${US}$chain${US}[chain]
+86${US}network${US}$network${US}[network]
+87${US}factory${US}$factory${US}[factory]
+88${US}house${US}$house${US}[house]
+89${US}dice${US}$dice${US}[dice]
+90${US}touch${US}$touch${US}[touch]
+91${US}refresh${US}$refresh${US}[refresh]
+92${US}bookmarks${US}$bookmarks${US}[bookmarks]
+93${US}dna${US}$dna${US}[dna]
+94${US}clamp${US}$clamp${US}[clamp]
+95${US}repeat${US}$repeat${US}[repeat]
+96${US}bison${US}$bison${US}[bison]
+97${US}test_tube${US}$test_tube${US}[test_tube]
+98${US}triangular_ruler${US}$triangular_ruler${US}[triangular_ruler]
+99${US}cat${US}$cat${US}[cat]
+100${US}scissors${US}$scissors${US}[scissors]
+101${US}spider_web${US}$spider_web${US}[spider_web]
+102${US}catalog${US}$catalog${US}[catalog]
+103${US}relic${US}$relic${US}[relic]
+104${US}outbox${US}$outbox${US}[outbox]
+105${US}inbox${US}$inbox${US}[inbox]
+106${US}hex_digits${US}$hex_digits${US}[hex_digits]
+107${US}palette${US}$palette${US}[palette]
+108${US}mask${US}$mask${US}[mask]
+109${US}cyclone${US}$cyclone${US}[cyclone]
+110${US}onion${US}$onion${US}[onion]
+111${US}ruler${US}$ruler${US}[ruler]
+112${US}camel${US}$camel${US}[camel]
+113${US}piggy${US}$piggy${US}[piggy]
+114${US}speech_bubble${US}$speech_bubble${US}[speech_bubble]
+115${US}trash_can${US}$trash_can${US}[trash_can]
+116${US}bar_chart${US}$bar_chart${US}[bar_chart]
+117${US}lock_pen${US}$lock_pen${US}[lock_pen]
+118${US}blue_book${US}$blue_book${US}[blue_book]
+119${US}clipboard${US}$clipboard${US}[clipboard]
+120${US}paper_roll${US}$paper_roll${US}[paper_roll]
+121${US}digits${US}$digits${US}[digits]
+122${US}scroll${US}$scroll${US}[scroll]
+123${US}bricks${US}$bricks${US}[bricks]
+124${US}paper_clip${US}$paper_clip${US}[paper_clip]
+125${US}chestnut${US}$chestnut${US}[chestnut]
+"
+
+
+#-----[ Global Active Box UI Registry ]---------------------------------------
+# format: "index:name:hexvalue:log_translation" (Space or Newline separated)
+# name is used for the bin_<name> variables and log filtering
+# hexvalue is the asset by referneced by the source
+#   codepoint of the variable by the same name
+# log_translation is an "ascii-art" equivalent
+# IMPORTANT: this assignment must FOLLOW the raw hex definitions sourced above,
+#   and it must PRECEDE the emit_utf8_from_hex and _precook_ui_assets function definitions below
+ACTIVE_UI_BOX_REGISTRY="
+1${US}uH_light${US}$uH_light${US}--
+2${US}uV_light${US}$uV_light${US}|
+3${US}uUL_light${US}$uUL_light${US}+
+4${US}uUR_light${US}$uUR_light${US}+
+5${US}uLL_light${US}$uLL_light${US}+
+6${US}uLR_light${US}$uLR_light${US}+
+7${US}uT_down_light${US}$uT_down_light${US}+
+8${US}uT_up_light${US}$uT_up_light${US}+
+9${US}uT_right_light${US}$uT_right_light${US}+
+10${US}uT_left_light${US}$uT_left_light${US}+
+11${US}uCROSS_light${US}$uCROSS_light${US}+
+12${US}uH_heavy${US}$uH_heavy${US}==
+13${US}uV_heavy${US}$uV_heavy${US}#
+14${US}uUL_heavy${US}$uUL_heavy${US}#
+15${US}uUR_heavy${US}$uUR_heavy${US}#
+16${US}uLL_heavy${US}$uLL_heavy${US}#
+17${US}uLR_heavy${US}$uLR_heavy${US}#
+18${US}uH_double${US}$uH_double${US}==
+19${US}uV_double${US}$uV_double${US}#
+20${US}uUL_double${US}$uUL_double${US}#
+21${US}uUR_double${US}$uUR_double${US}#
+22${US}uLL_double${US}$uLL_double${US}#
+23${US}uLR_double${US}$uLR_double${US}#
+24${US}uARC_UL${US}$uARC_UL${US}(
+25${US}uARC_UR${US}$uARC_UR${US})
+26${US}uARC_LL${US}$uARC_LL${US}(
+27${US}uARC_LR${US}$uARC_LR${US})
+28${US}uT_down_hH_vL${US}$uT_down_hH_vL${US}+
+29${US}uT_up_hH_vL${US}$uT_up_hH_vL${US}+
+30${US}uT_right_vH_hL${US}$uT_right_vH_hL${US}+
+31${US}uT_left_vH_hL${US}$uT_left_vH_hL${US}+
+"
+
+# define a set of unicode character ranges for use with _precook_unregistry (sanitation)
+INACTIVE_UNICODE_UNREGISTRY="
+1${US}FE00${US}FE0E${US}[VS]
+2${US}200C${US}200D${US}[ZW]
+3${US}200E${US}2069${US}[PUNC]
+4${US}FFF9${US}FFFB${US}[AN]
+5${US}2600${US}26FF${US}[LEGACY]
+"
+
+_precook_registry() # (POSIX) helper to precook the assets in one registry "$1"
+{ pr_ret=0; _pr_REGISTRY="$1"
+  # precook binary multi-byte binary unicode characters AND append to SED_LOG_FILTER for
+  #   filtering log output - SED_LOG_FILTER is initialized very early in the header (about line 196)
+  # by _init_ascii_controls().  It is appended here to beome a series of substitution lines like
+  #   s/$bin_emoji/$trans/g so that unicode characters in the logging stream are replaced by ascii-art
+  # These are not index-constrained, but use the same 4-field parsing as emojis
+  ### for _pr_entry in $_pr_REGISTRY; do  ## (replace with while read to protect vs word splits
+  while IFS= read -r _pr_entry; do
+    # guard: skip empty lines like the one at the beginning of each registry
+    [ -z "$_pr_entry" ] && continue
+    _pr_bin=""  # (re)initialize
+    # strip the longest match for ${US}* from the right - leaving index
+    _pr_idx="${_pr_entry%%${US}*}"
+    # strip shortest match for *${US} from the left - removing index
+    _pr_rem="${_pr_entry#*${US}}"
+    # strip longest match for ${US}* from the right - leaving name
+    _pr_name="${_pr_rem%%${US}*}"
+    # strip shortest match for *${US} from the left - removing name
+    _pr_rem="${_pr_rem#*${US}}"
+    # strip longest match for ${US}* from the rith - leaving $name = hex
+    _pr_hex="${_pr_rem%%${US}*}"
+    # Note: pseudo-boolean TRUE=0; FLASE="" at global scope
+    _VALID="$TRUE"; _tmp="$_pr_hex"
+    while [ ! -z "$_tmp" ]; do
+      case "$_tmp" in
+        # at least partial valid codepoint matches literal-\ followed by u-or-U followed by 4xhex ..
+        \\[Uu][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]*)   # matches \\Uhhhh*
+           _tmp="${_tmp#\\[Uu][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]}"  # strip the match part
+           case "$_tmp" in [0-9A-Fa-f]*) _tmp="${_tmp#?}";; esac              # check/strip optional digit 5
+           case "$_tmp" in [0-9A-Fa-f]*) _tmp="${_tmp#?}";; esac              # check/strip optional digit 6
+           ;;
+        *)
+#            echo "DEBUG: setting _VALID false because _tmp [$_tmp] is not valid"
+            _VALID="$FALSE"
+            break
+            ;;
+      esac
+      # if got here w/o fail-out-break, then weve striped exactly one '\\Uhhhhxx' (4-6 digit) block
+    done  # multi-codepoint loop
+    [ "$_VALID" ] || { pr_ret=$(( pr_ret | 1 )); continue; }  # invalid codepoint
+    # strip longest match for *${US} from the left - leaving ascii-art (trans)
+    _pr_trans="${_pr_entry##*${US}}"
+    # capture the output of the pure-shell octal byte generator emit_utf8_from_hex
+    #   engine directly into the binary variable
+    # assign e.g. bin_name="bin_hammer"
+    bin_name="bin_${_pr_name}"
+    # assign octal byte sequences for hex input
+    oct_vals=$(emit_utf8_from_hex "$_pr_hex") || pr_ret=$(( pr_ret | 2 ))  # emit_utf8_from_hex failure
+#echo "pr DEBUG TRIPWIRE: oct_vals [$oct_vals]" >&2
+
+    # assign interpreted octal bytes to the var e.g. bin_hammer=$(printf '%b' "\360\237\224\250")
+#    printf -v "$bin_name" '%b' "$oct_vals"           # I love this, but it is not POSIX
+    # interpret octal escapes; store entire UTF-8 byte string in $1 (or printf %b failure
+    set -- "$(printf '%b' "$oct_vals")" || pr_ret=$(( pr_ret | 4 ))
+    # assign only $1 (never $@) to avoid splitting or globbing, or eval failure
+    eval "$bin_name=\$1" || pr_ret=$(( pr_ret | 8 ))    # pr_ret bit 3 = eval failure
+#echo "pr DEBUG TRIPWIRE: bin_name [$bin_name]" >&2
+    # now add this emoji's rule to the precooked log filtering sed script
+    eval "_pr_bin=\$bin_${_pr_name}"
+#echo "pr DEBUG TRIPWIRE: _pr_bin [$_pr_bin]" >&2
+
+    # also "precook" a by-name index number variable for this character
+    idx_name="idx_${_pr_name}"
+    eval "$idx_name=$_pr_idx"
+    # now that both _pr_bin and _pr_trans are defined, create SED_LOG_FILTER
+    #   to support emit filtering of its logging output stream
+    #   (i.e. do the heavy lifting here when the registry is "cooked" upon sourcing of the header
+    #    so the dependent functions can operate efficiently, in real time)
+    if [ -z "$_pr_bin" ] || [ -z "$_pr_trans" ]; then
+      # failed to make a bin_ or don't have a trans for it ...
+      continue
+    else
+      # append rule: s/binary_emoji/text_translation/g;
+      SED_LOG_FILTER="${SED_LOG_FILTER}s/$_pr_bin/$_pr_trans/g; "
+    fi
+    # now that _pr_bin _pr_name and _pr_hex are defined, create _PATTERN_WIDTH_1 and _PATTERN_WIDTH_2
+    #   to support utf8_string_width and get_msg_len
+    #   (i.e. do the heavy lifting here when the registry is "cooked" upon sourcing of the header
+    #    so the dependent functions can operate efficiently, in real time)
+    # use the first codepoint in the hex string to determine width
+    # extract the first hex block (e.g., 'U+1F300') and convert to decimal
+    # (ensure the hex is clean and use arithmetic expansion for decimal conversion)
+    _pr_cp_hex="${_pr_hex#\\[Uu]}"
+    _pr_cp_hex="${_pr_cp_hex%%\\*}" # handle multi-codepoint strings by isolating the first
+    # guard: ensure _pr_cp_hex is not empty and contains only hex digits
+    # ( this prevents ash from throwing a syntax error on $((16#...)) )
+    case "$_pr_cp_hex" in
+        [0-9A-Fa-f]*)                 # double-check (_VALID above should have caught)
+            _pr_cp_dec=$((16#$_pr_cp_hex))
+            ;;
+        *)  # fall back to a safe neutral or trigger an error
+            _pr_cp_dec=0
+            pr_ret=$(( pr_ret | 16 ))  # malformed codepoint
+            ;;
+    esac
+    # translate codepoint range to character column-width
+    if [ "$_pr_cp_dec" -ge 768 ] && [ "$_pr_cp_dec" -le 879 ]; then _pr_width=0          # combining marks
+    elif [ "$_pr_cp_dec" -eq 65039 ] || [ "$_pr_cp_dec" -eq 8205 ]; then _pr_width=0     # VS16, ZWJ
+    elif [ "$_pr_cp_dec" -ge 9728 ] && [ "$_pr_cp_dec" -le 10175 ]; then _pr_width=2     # misc symbols/dingbats
+    elif [ "$_pr_cp_dec" -ge 127744 ] && [ "$_pr_cp_dec" -le 129775 ]; then _pr_width=2  # emojis/pictographs
+    else
+        # default for box-drawing (U+2500 range) and most others is 1
+        _pr_width=1
+#echo "*** pr tripwire: $_pr_name with _pr_cp_dec: [$_pr_cp_dec] fell into the else default width: [$_pr_width]" >&2
+
+    fi
+#echo "pr debug: _pr_name: [$_pr_name]" >&2
+#echo "pr debug: _pr_hex: [$_pr_hex]" >&2
+#echo "pr debug: _pr_cp_dec: [$_pr_cp_dec]" >&2
+#echo "pr debug: _pr_width: [$_pr_width]" >&2
+    # append the binary character to the corresponding pattern variable with | bookending
+    # ensure a leading | and a trailing | so that *"|$_usw_char|"* always matches
+    # note: these are delimiters, not logical OR pipes, for the pattern to be matched as above
+    case "$_pr_width" in
+        0) _PATTERN_WIDTH_0="${_PATTERN_WIDTH_0:-|}$_pr_bin|" ;;
+        1) _PATTERN_WIDTH_1="${_PATTERN_WIDTH_1:-|}$_pr_bin|" ;;
+        2) _PATTERN_WIDTH_2="${_PATTERN_WIDTH_2:-|}$_pr_bin|" ;;
+    esac
+   # careful: POSIX heredoc must be at the left edge
+  done <<EOF
+$_pr_REGISTRY
+EOF
+
+  # one more precook task - pre-calculate index numbers of the emoji used to represent severity levels
+  #   so emit doesn't have to look them up and can stay efficient
+#  idx_severity_01_emoji=$(idx_of_emoji "cross_mark")            # emerg|alert
+#  idx_severity_23_emoji=$(idx_of_emoji "explosion")             # crit|err
+#  idx_severity_4_emoji=$(idx_of_emoji "no_entry")               # warn
+##  idx_severity_5_emoji=$(idx_of_emoji "face_thinking")          # notice
+#  idx_severity_5_emoji=$(idx_of_emoji "uTHUNDER")          # notice
+#  idx_severity_6_emoji=$(idx_of_emoji "face_grin")              # info
+#  idx_severity_7_emoji=$(idx_of_emoji "magnifying_glass_left")  # debug
+
+  # (use precooked by-name idx_ and bin_ to assign by-severity idx_ and bin_ )
+  idx_severity_01_emoji="$idx_cross_mark"            # emerg|alert
+  bin_severity_01_emoji="$bin_cross_mark"            # emerg|alert
+  idx_severity_23_emoji="$idx_explosion"             # crit|err
+  bin_severity_23_emoji="$bin_explosion"             # crit|err
+  idx_severity_4_emoji="$idx_warning"                # warn
+  bin_severity_4_emoji="$bin_warning"                # warn
+  idx_severity_5_emoji="$idx_sparkles"               # notice
+  bin_severity_5_emoji="$bin_sparkles"               # notice
+  idx_severity_6_emoji="$idx_face_grin"              # info
+  bin_severity_6_emoji="$bin_face_grin"              # info
+  idx_severity_7_emoji="$idx_magnifying_glass_left"  # debug
+  bin_severity_7_emoji="$bin_magnifying_glass_left"  # debug
+
+  unset -v _pr_rem _pr_name _pr_hex
+  unset -v _pr_entry _pr_trans _pr_bin
+  return $pr_ret
+}
+
+_precook_unregistry() # (POSIX) precook the unicode characters in ranges needed to sanitize logs
+{ pu_ret=0
+  _pu_UNREGISTRY="$1"
+  # given _pu_UNREGISTRY of format: index${US}lower${US}upper${US}[trans]
+  # for each range precook characters between lower and upper
+  # and append SED_LOG_FILTER rules for each
+  while IFS= read -r _pu_entry; do
+    # guard: skip empty lines like the one at the beginning of each registry
+    [ -z "$_pu_entry" ] && continue
+    # strip the longest match for ${US}* from the right - leaving index
+    _pu_idx="${_pu_entry%%${US}*}"
+    # strip shortest match for *${US} from the left - removing index
+    _pu_rem="${_pu_entry#*${US}}"
+    # strip longest match for ${US}* from the right - leaving lower
+    _pu_lower="${_pu_rem%%${US}*}"
+    # strip shortest match for *${US} from the left - removing lower
+    _pu_rem="${_pu_rem#*${US}}"
+    # strip longest match for ${US}* from the rith - leaving upper
+    _pu_upper="${_pu_rem%%${US}*}"
+    # strip longest match for *${US} from the left - leaving ascii-art (trans)
+    _pu_trans="${_pu_entry##*${US}}"
+
+    # convert to decimal to iterate over range from lower to upper --
+    #   generate the binary character and append entry to SED_LOG_FILTER
+    if [ ! -z "$_pu_lower" ]; then
+      _pu_cp_dec=$((16#$_pu_lower))
+    else
+      _pu_cp_dec=0
+      pu_ret=$(( pu_ret | 1 ))  # bit 0 = malformed codepoint
+      continue
+    fi
+    if [ ! -z "$_pu_upper" ]; then
+      _pu_end_dec=$((16#$_pu_upper))
+    else
+      _pu_end_dec=0
+      pu_ret=$(( pu_ret | 1 ))  # bit 0 = malformed codepoint
+      continue
+    fi
+    # iterate
+    while [ "$_pu_cp_dec" -le "$_pu_end_dec" ]; do
+      # convert to hex to then get octal and cook that
+      _pu_cur_hex=$(printf '%x' "$_pu_cp_dec")
+      # assign octal byte sequences for hex input
+      _pu_oct_vals=$(emit_utf8_from_hex "\\U$_pu_cur_hex") || pu_ret=$(( pu_ret | 2 ))   # bit 1 = emit_utf8_from_hex assign failure
+
+      # assign interpreted octal bytes to the var e.g. bin_hammer=$(printf '%b' "\360\237\224\250")
+      # interpret octal escapes; store entire binary UTF-8 byte string in $1 (or printf %b failure
+      set -- "$(printf '%b' "$_pu_oct_vals")" || pu_ret=$(( pu_ret | 4 ))   # bit 2 = set bin_val failure
+      # assign only $1 (never $@) to avoid splitting or globbing, or eval failure
+      _pu_bin_val="$1"
+
+      # append rule: s/binary_emoji/text_translation/g;
+      SED_LOG_FILTER="${SED_LOG_FILTER}s/$_pu_bin_val/$_pu_trans/g; "
+      # increment codepoint counter
+      _pu_cp_dec=$(( _pu_cp_dec + 1 ))
+    done
+    # careful: POSIX heredoc must be at the left edge
+  done <<EOF
+$_pu_UNREGISTRY
+EOF
+
+  unset -v _pu_entry _pu_bin_val _pu_idx _pu_rem _pu_lower _pu_upper
+  unset -v _pu_trans _pu_cp_dec _pu_end _pu_cur_hex _pu_oct_vals _pu_UNREGISTRY
+  return $pu_ret
+}
+# @usage _precook_unregistry "<unregistry>"
+# @args  1: unregistry string defining unicode ranges to sanitize
+# @vars  SED_LOG_FILTER US
+# @ret   0 on success; non-zero bitmask on partial failure
+# @deps  emit_utf8_from_hex printf sed
+# @req   US must be defined as a field separator
+# @rule  operates only on explicit unicode ranges; no utf-8 heuristics
+# @rule  generates literal-byte sed rules; sed must not interpret escapes
+# @rule  must run after curated registry precooking
+# @note  unregistry entries define structural unicode to remove or replace
+# @note  this function replaces legacy sanitation steps 3 through 6
+# @note  generated rules are compile-time artifacts only
+# @warn  large ranges may increase sed script size and processing time
+# @ex    _precook_unregistry "$INACTIVE_UNICODE_UNREGISTRY"
+
+_precook_ui_assets() # (POSIX) precook the set of emoji considered most "active" for optimizatoin
+{ cua_ret=0
+  # Note: all ascii control precooking moved up to _init_ascii_controls
+  # precook standalone UI assets (Box drawing)
+  # (list contains the variables we want to 'bake' into bin_ equivalents
+
+  # INITIALIZE/RESET global patterns to prevent doubling on re-sourcing
+  _PATTERN_WIDTH_0=""
+  _PATTERN_WIDTH_1=""
+  _PATTERN_WIDTH_2=""
+#  SED_LOG_FILTER=""  # <--- do not reset this. it is initialized early by _init_ascii_controls()
+
+  #----[ pass 0: Emoji Registry ]---------------------------------------------
+  _precook_registry "$ACTIVE_EMOJI_REGISTRY" || cua_ret=1
+
+  #----[ pass 1: UI Box Drawing Registry ]------------------------------------
+  _precook_registry "$ACTIVE_UI_BOX_REGISTRY" || cua_ret=$(( cua_ret + 2 ))
+
+  #----[ add fall-back sanitize rules to the SED_LOG_FILTER ]---------------------------------------
+  _precook_unregistry "$INACTIVE_UNICODE_UNREGISTRY"
+#  SED_LOG_FILTER="${SED_LOG_FILTER}; s/[\302-\364]/[char]/g"
+
+  #----[ pass 2: Zero Width Registry ]----------------------------------------
+  # key ordering for the filter is written as:
+  #   1 - remove ANSI and ASCII controls (done in _init_ascii_controls)
+  #   2 - translate known emoji/ui-box grapheme clusters (done in _precook_registry)
+  #   3 - translate unsafe and unwanted/fallback ranges (done in _precook_unregistry)
+  #   4 - translate known zw characters not already found in grapheme clusters (must come last)
+  _precook_registry "$ACTIVE_ZERO_WIDTH_REGISTRY" || cua_ret=$(( cua_ret + 4 ))
+
+  # note: ZW pass has to go last so the SED_LOG_FILTER has the combined
+  # characters earlier in search pattern than the indifidual ZWs like VS16
+  # (otherwise the ZWs get stripped first and the engine cannot recognize the
+  #  byte sequences of the remnanats of multi-character grapheme somethingorothers
+
+  unset -v _cua_idx _cua_rem _cua_name _cua_hex
+  unset -v _cua_entry _cua_trans _cua_octal _cua_bin
+  #echo "(debug) returning from _precook_ui_assets with exit code [$cua_ret]"
+  return $cua_ret
+}
+# @usage _precook_ui_assets
+# @vars BEL, BS, HT, LF, VT, FF, CR, ESC, US, DEL, EOF, SO, SI (global ASCII)
+# @vars bin_<name>: baked binary UTF-8 characters for the active emoji set
+# @ret cua_ret (0 for success, 1 for hex conversion failure)
+# @deps emit_utf8_from_hex, printf
+
+
+_cook_everything_now() # (POSIX) conditionalize and control the need to run _precook_ui_assets
+{ cen_ret=0
+  # this encompasses the heavy-lifting (slow part) of the header-loading process
+  # once run, the data it generates can be cached (as done below)
+  # ** call the _precook_ui_assets function to pre-bake the set of emojis considered "active"
+  # (this is primarily to enable binary optimization of the real-time log-filering that emit has to do
+  #  to provide clean log output when UNICODE_CAPABLE is true and UNICODE_DISABLE is not)
+  _precook_ui_assets || cen_ret=1
+  # order matters - this call must precede the variable assignments depending on the availability
+  # of values set by it (e.g. ESC, so CSI can be set below and then all the colors depending on that
+  # ** dump the 'bin_', 'idx_', and 'SED_LOG_FILTER' state to cache
+  # this captures the binary literals exactly as processed
+  #  set | grep -E '^(bin_|idx_|SED_LOG_FILTER=)' > "$_joetoo_cache"
+  # dont want scripts sourcing the file while it is being written (which could happen w above)
+  # so > tmp and then use mv, wherein the change to cache file happens instantly (atomically)
+  # at the filesystem level, and a sourcing script will either see the old valid cache or
+  # the new valid cache, but never a "half-baked" one
+  # use a commang grouping block { ... } to group the output and control the order
+  { # first, registries (cleaner to read)
+    set | grep -E '^(bin_|idx_)[a-zA-Z0-9_]*='
+    # then SED_LOG_FILTER (heavy filter)
+#    set | grep -E '^SED_LOG_FILTER='    ### this works for 99% of the filter but it corrupts ${ESC} into \E and
+                                         ### breaks the ansi-strip rule, so use this below instead
+    # "manually" write SED_LOG_FILTER using printf to preserve raw bytes;
+    # (use '%s' to ensure the ESC byte isn't re-interpreted or escaped)
+    printf "SED_LOG_FILTER='%s'\n" "$SED_LOG_FILTER"
+  } > "${_joetoo_cache}.tmp" || cen_ret=2
+  # distribute to memory cache/tmp and persistent store
+  # (locations determined in block below function)
+  if [ $cen_ret -eq 0 ]; then
+    # update memory/tmp "volatile" cache (atomic)
+    # (use cp then mv so the .tmp source survives for the store update)
+    cp "${_joetoo_cache}.tmp" "${_joetoo_cache}.swap" || cen_ret=3
+    if [ $cen_ret -eq 0 ]; then
+       mv "${_joetoo_cache}.swap" "$_joetoo_cache" || cen_ret=4
+    fi  # cp cache -> cache.swap ok
+    # update persistent disk store (atomic)
+    # (use ${joetoo_store%/*} - parameter expansion dirname)
+    if [ $cen_ret -eq 0 ] && [ ! -z "$joetoo_store" ] && [ -w "${joetoo_store%/*}" ]; then
+      mv "${_joetoo_cache}.tmp" "${joetoo_store}" || cen_ret=5
+    fi
+    [ -f "${_joetoo_cache}.tmp" ] && rm -f "${_joetoo_cache}.tmp"  # cleanup the master temp file (if it still exists)
+    [ -f "${_joetoo_cache}.swap" ] && rm -f "${_joetoo_cache}.swap"  # cleanup the temp swap file (if it still exists)
+  fi  # set ok
+  case "$cen_ret" in
+    0) j_msg -${debug} "successfully updated ui asset cache: [$_joetoo_cache]" ;;
+    1) j_msg -${err} "error: failed to _precook_ui_assets" ;;
+    2) j_msg -${err} "error: failed to (set) ui asset cache:  [${_joetoo_cache}.tmp]" ;;
+    3) j_msg -${err} "error: failed to (cp) ui asset cache:  [${_joetoo_cache}.swap]" ;;
+    4) j_msg -${err} "error: failed to (mv) ui asset cache:  [${_joetoo_cache}]" ;;
+    5) j_msg -${warn} "warning: failed to save (cp) ui asset store:  [${joetoo_store}]" ;;
+    *) j_msg -${err} "error: invalid exit status in _cook_everything_now" ;;
+  esac
+  return $cen_ret
+}
+# @usage _cook_everything_now
+# @vars _joetoo_cache: memory/tmp path for high-speed runtime access
+# @vars joetoo_store: disk path for boot-time/initramfs persistence
+# @vars bin_*: binary literal registries to be cached
+# @vars idx_*: index registries to be cached
+# @vars SED_LOG_FILTER: regex filter string for log cleaning
+# @ret 0: success, 1-4: specified cache failure modes 5: persistent store fail warn
+# @deps _precook_ui_assets, j_msg, mv, cp, grep, set
+# @rule updates both RAM and Disk stores simultaneously to ensure consistency
+# @cont (these must be writable paths)
+# @rule uses { ... } grouping to order output without subshell overhead
+# @rule performs atomic update via tmp file and mv to prevent race conditions
+# @note memory cache and persistent disk store retain binary literals for optimization
+# @cont cache supports real-time io performance; store eliminates re-cook at boot
+# @append in use cases such as initramfs, where the persistent store can be
+# @append retrieved to populate the cache its own environment
+# @note essential for performance when UNICODE_CAPABLE is true
+
+_hydrate_ui_assets() # (POSIX) encapsulates ui asset cache/store strategy
+{ hua_ret=0
+  # define cache and store locations
+  # store - use this standardized location
+  joetoo_store="/var/lib/joetoo/.joetoo_ui_asset_store"  # note: global scope
+  _store_dir="${joetoo_store%/*}"
+  # cache - prefer a memory-backed location if avaiable, else use /tmp
+  if [ -d /dev/shm ]; then
+    _joetoo_cache="/dev/shm/.joetoo_ui_asset_cache_${user}"
+  else
+    _joetoo_cache="/tmp/.joetoo_ui_asset_cache_${user}"
+  fi
+
+  # ensure the store file itself (if it exists) is world-readable
+  if [ -f "$joetoo_store" ] && [ ! -r "$joetoo_store" ]; then
+    # file existence implies dir existence, but make sure it is searchable
+    printf "*** >>> [sudo] setting permission on store file and dir [%s] (sudo password may be required) <<< ***\n" "$joetoo_store"
+    # on newly build systems, there is no sudo but login is root anyway - check for that first
+    if isroot ; then
+      chmod 644 "$joetoo_store" && chmod 755 "$_store_dir" &>/dev/null
+      if [ $? -eq 0 ] ; then
+        printf '%s\n' "successfully set perms as root"
+      else
+        printf '%s\n' "failed to set perms as root"
+        hua_ret=$(( hua_ret + 2 ))
+      fi
+    else
+      # combined sudo call for efficiency
+      sudo sh -c "chmod 644 '$joetoo_store' && chmod 755 '$_store_dir'" &>/dev/null || hua_ret=$(( hua_ret + 2 ))   # bit 1 = chmod 644 fail
+    fi
+  else
+    # if the file does not exist or is not readable,
+    # then ensure the directory exists and is searchable (755)
+    # so the the create process will work
+    #  * pre-check * if root access is needed to setup the store directory
+    #  (755 implies readable and executable bits are set [not the -w])
+    if [ ! -d "$_store_dir" ] || [ ! -x "$_store_dir" ] || [ ! -r "$_store_dir" ] ; then
+      # inform the user WHY they are about to see a password prompt
+      # (which, for ssh connections would otherwise look like
+      #  pki authentication is not being used and the sshd is asking for
+      #  the password). so be clear about why this is about to happen
+      printf "*** >>> [sudo] creating _store_dir [%s] (sudo password may be required) <<< ***\n" "$_store_dir"
+      if isroot ; then
+        mkdir -p "$_store_dir" && chmod 755 "$_store_dir" &>/dev/null
+        if [ $? -eq 0 ] ; then
+          printf '%s\n' "successfully created store as root"
+        else
+          printf '%s\n' "failed to create store as root"
+          hua_ret=1
+        fi
+      else
+        # combined sudo call for efficiency
+        sudo sh -c "mkdir -p '$_store_dir' && chmod 755 '$_store_dir'" &>/dev/null || hua_ret=1   # bit 0 = joetoo_store mkdir/chmod fail
+      fi
+    fi  # store dir
+  fi  # strore file
+  # define the source of truth (this header itself)
+  _joetoo_header="${JOETOO_HEADER_DIR%/}/script_header_joetoo"
+  # "hydration" strategy - if cache exists and is newer than the header, use it
+  if [ -f "$_joetoo_cache" ] && [ "$_joetoo_cache" -nt "$_joetoo_header" ]; then
+      # tier 1 - memory cache is fresh, so load it immediately
+      . "$_joetoo_cache"  || hua_ret=$(( hua_ret + 4 ))   # bit 2 = _joetoo_cache source fail
+  elif [ -f "$joetoo_store" ] && [ "$joetoo_store" -nt "$_joetoo_header" ]; then
+      # tier 2 memory cache is stale/gone, but fresh persistent store is available,
+      # so populate a new cache from the store, and source it
+      cp "$joetoo_store" "$_joetoo_cache" || hua_ret=$(( hua_ret + 8 ))   # bit 3 = joetoo_store cp fail
+      if [ $(( hua_ret & 8 )) -eq 0 ] ; then . "$_joetoo_cache" || hua_ret=$(( hua_ret + 16 )) ; fi # cp ok
+  else                                        # bit 4 = _joetoo_cache from store source fail
+      # tier 3 - nothing is fresh; do the heavy lifting (run _cook_everything_now)
+      if ! _cook_everything_now ;then
+        hua_ret=$(( hua_ret + 32 ))   # bit 5 = _cook_everything_now failure
+      else
+          # if cook succeeded, update the persistent store for future Tier 1 & 2 hydration
+          # copy to temp file in store dir, set permissions, then mv for atomic write
+          if isroot ; then
+            cp "$_joetoo_cache" "${joetoo_store}.tmp" && chmod 644 "${joetoo_store}.tmp" && \
+              mv "${joetoo_store}.tmp" "${joetoo_store}" > /dev/null 2>&1
+            if [ $? -eq 0 ] ; then
+              printf '%s\n' "successfully wrote store as root"
+            else
+              printf '%s\n' "failed to write store as root"
+              hua_ret=1
+            fi
+          else
+            sudo sh -c "cp '$_joetoo_cache' '${joetoo_store}.tmp' && \
+                      chmod 644 '${joetoo_store}.tmp' && \
+                      mv '${joetoo_store}.tmp' '${joetoo_store}'" > /dev/null 2>&1 || \
+                          hua_ret=$(( hua_ret + 64 )) # bit 6 = _joetoo_store write fail
+          fi
+          # source the asset cache
+          . "$_joetoo_cache" || hua_ret=$(( hua_ret + 128 ))   # bit 6 = _joetoo_cache from cook source fail
+      fi
+  fi  # cache exists and is -nt header
+  unset -v _store_dir joetoo_store _joetoo_cache
+  return $hua_ret
+}
+# @usage _hydrate_ui_assets
+# @ret bitmask: 1:mkdir/chmod 755 store_dir fail, 2:chmod 644 store fail,
+# @append 4:cache_src_fail, 8:cp store->cache fail, 16:store src fail,
+# @append 32:cook_fail, 64: store write fail; 128: final_src_fail
+# @rule Tiered recovery: memory/tmp -> disk -> cook
+# @note failures in bits 5+ (value 32+) indicate the UI
+# @append log-filtering will be disabled or degraded
+
+# invoke the function defined just above
+_hydrate_ui_assets
+_hua_status=$?
+# provide _hydrate_ui_assets failure mode output if necessary
+# (note the use of POSIX equivalent to (( ( var & n 0 == 0 )) && ... )
+[ ! $(( _hua_status & 1  )) -eq 0 ] && j_msg -${warn} "failed to setup /var/lib/joetoo directory"
+[ ! $(( _hua_status & 2  )) -eq 0 ] && j_msg -${warn} "failed to make store file world-readable"
+[ ! $(( _hua_status & 4  )) -eq 0 ] && j_msg -${warn} "failed to source ui assets from existing cache"
+[ ! $(( _hua_status & 8  )) -eq 0 ] && j_msg -${warn} "failed to cp store to cache"
+[ ! $(( _hua_status & 16 )) -eq 0 ] && j_msg -${warn} "failed to source ui assets from store"
+[ ! $(( _hua_status & 32 )) -eq 0 ] && \
+  { j_msg -${err} "failed to _cook_everything_now; disabling UI features"
+    UNICODE_CAPABLE="$FALSE" ; }
+[ ! $(( _hua_status & 64 )) -eq 0 ] && j_msg -${warn} "failed to write ui assets to persistent store"
+[ ! $(( _hua_status & 128 )) -eq 0 ] && \
+  { j_msg -${err} "successfully-cooked but failed to source ui assets; disabling UI features"
+    UNICODE_CAPABLE="$FALSE" ; }

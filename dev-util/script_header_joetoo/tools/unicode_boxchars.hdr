@@ -1,0 +1,44 @@
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# unicode_boxchars.hdr - list of box-drawing unicode characters to include in registry, with substitute ascii text for logging
+
+# associative array (-A) keyed on char name, global scope (-g)
+declare -A -g unicode_boxchars=()
+
+
+# $ readarray -t lines < <(printf '%s\n' "$ACTIVE_UI_BOX_REGISTRY")
+# $ for line in "${lines[@]}"; do IFS="${US}" read -a parts <<< "$line"; echo "unicode_boxchars[${parts[1]}]=\"${parts[3]}\""; done
+
+unicode_boxchars[uH_light]="--"
+unicode_boxchars[uV_light]="|"
+unicode_boxchars[uUL_light]="+"
+unicode_boxchars[uUR_light]="+"
+unicode_boxchars[uLL_light]="+"
+unicode_boxchars[uLR_light]="+"
+unicode_boxchars[uT_down_light]="+"
+unicode_boxchars[uT_up_light]="+"
+unicode_boxchars[uT_right_light]="+"
+unicode_boxchars[uT_left_light]="+"
+unicode_boxchars[uCROSS_light]="+"
+unicode_boxchars[uH_heavy]="=="
+unicode_boxchars[uV_heavy]="#"
+unicode_boxchars[uUL_heavy]="#"
+unicode_boxchars[uUR_heavy]="#"
+unicode_boxchars[uLL_heavy]="#"
+unicode_boxchars[uLR_heavy]="#"
+unicode_boxchars[uH_double]="=="
+unicode_boxchars[uV_double]="#"
+unicode_boxchars[uUL_double]="#"
+unicode_boxchars[uUR_double]="#"
+unicode_boxchars[uLL_double]="#"
+unicode_boxchars[uLR_double]="#"
+unicode_boxchars[uARC_UL]="("
+unicode_boxchars[uARC_UR]=")"
+unicode_boxchars[uARC_LL]="("
+unicode_boxchars[uARC_LR]=")"
+unicode_boxchars[uT_down_hH_vL]="+"
+unicode_boxchars[uT_up_hH_vL]="+"
+unicode_boxchars[uT_right_vH_hL]="+"
+unicode_boxchars[uT_left_vH_hL]="+"

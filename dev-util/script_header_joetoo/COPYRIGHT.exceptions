@@ -1,0 +1,35 @@
+# list of package-relative file pathnames in which there should NOT be a copyright statement
+./COPYRIGHT.exceptions
+./LICENSES.package
+# exception for ui_asset_compiler which will error on "multiple copyright lines" because it has to write them
+./tools/ui_asset_compiler
+# these are reference data files with copyright documented in collocated ReadMe files 
+./unicode_data/emoji/ReadMe.txt
+./unicode_data/emoji/emoji-test.txt
+./unicode_data/emoji/emoji-zwj-sequences.txt
+./unicode_data/emoji/emoji-sequences.txt
+./unicode_data/emoji/full-emoji-list.html
+./unicode_data/ucd/emoji/ReadMe.txt
+./unicode_data/ucd/emoji/emoji-data.txt
+./unicode_data/ucd/emoji/emoji-variation-sequences.txt
+./unicode_data/license.txt
+# these test programs are derived from online tutorial sources as documented in each
+./testing/get_file_size.cpp
+./testing/write_text_file.cpp
+./testing/sleeper
+./testing/get_file_size
+./testing/my_itoa
+./testing/height_width.cpp
+./testing/write_text_file
+./testing/height_width
+./testing/example.txt
+./testing/read_text_file.cpp
+./testing/test2
+./testing/read_text_file
+./testing/stringConstructor.cpp
+./testing/bigtest.cpp
+./testing/test2.cpp
+./testing/bigtest
+./testing/stringConstructor
+./testing/repeat
+./archive/testfile

@@ -5,6 +5,13 @@
 #
 #   unicode characters used in script_header_joetoo
 
+# references:
+#    https://unicode.org/emoji/charts/full-emoji-list.html
+#    https://unicode.org/emoji/charts/emoji-list.html
+#    https://www.unicode.org/Public/18.0.0/emoji/emoji-sequences.txt
+#    Copies of these and other resources can be found at /usr/share/script_header_joetoo/unicode_data/
+#    Associated license can be found at /usr/share/licenses/script_header_joetoo/LICENSES/
+
 #-----[ raw hex Unicode/Emojis ]--------------------------------------------------------------
 
 # factors determining which emoji to display in context
@@ -143,8 +150,8 @@ penguin="\\U1F427"
 mouseface="\\U1F42D"
 mouse="\\U1F401"
 kiss="\\U1F48B"
-explosion="\\U1F4A5"
-collision="\\U1F4A5"
+collision="\\U1F4A5"   #.................# Unicode-derived name
+explosion="\\U1F4A5"   #.................# joetoo semantic alias
 thought_balloon="\\U1F4AD"
 
 # tools
@@ -268,7 +275,7 @@ telephone_legacy="\\U260E"
 telephone="${telephone_legacy}${VS16}"
 chain="\\U1F517"
 network="\\U1F5E7"
-factory="\\U1F3AD"
+factory="\\U1F3ED"
 puzzle="\\U1F9E9"
 laptop="\\U1F4BB"
 touch_legacy="\\U270D"

@@ -1,9 +1,11 @@
 /*
+ * Copyright <first-year>-2026 Joseph Brendler
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * my_itoa - convert integer to string test program
  *
- *  compiler command:
- *  $ g++ -o my_itoa my_itoa.cpp
+ * compiler command:
+ * $ g++ -o my_itoa my_itoa.cpp
  */
 
 #include <string>

@@ -1,0 +1,20 @@
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# associative array (-A) keyed on char name, global scope (-g)
+declare -A -g ansi_controls=()
+
+ansi_controls[BEL]='\007'  # h:0x07, d:07;  only when you literally need bells and whistles
+ansi_controls[BS]='\010'   # h:0x08, d:08;  oves cursor one column left; does not erase
+ansi_controls[HT]='\011'   # h:0x09, d:09;  equiv \t (horizontal tab)
+ansi_controls[LF]='\012'   # h:0x0A, d:10;  (linefeed)
+ansi_controls[VT]='\013'   # h:0x0B, d:11;  ansi_controls[(vertical tab; rarely used)
+ansi_controls[FF]='\014'   # h:0x0C, d:12;  equiv \f (form feed; page break in printers)
+ansi_controls[CR]='\015'   # h:0x0D, d:13;  equiv \r (carriage return; moves cursor to column 0)
+ansi_controls[SO]='\016'   # h:0x0E, d:14;  Shift Out (switch to G1 character set (e.g., line-drawing)
+ansi_controls[SI]='\017'   # h:0x0F, d:15;  Shift In (switch back to G0 character set)
+ansi_controls[EOF]='\032'  # h:0x1A, d:26;  End of File (aka SUB, CTRL-Z; but note: the byte itself is not an EOF char)
+ansi_controls[ESC]='\033'  # h:01Bx, d:27;  see CSI, ESCon, ESG0 (introduces ANSI/VT control sequences)
+ansi_controls[US]='\037'   # h:0x1F, d:31;  Unit Separator (an ASCII "file separator"; ideal delimiter -never appears in printed text)
+ansi_controls[DEL]='\177'  # h:0x7F, d:127; delete (destructive delete on paper tape; now a control character)

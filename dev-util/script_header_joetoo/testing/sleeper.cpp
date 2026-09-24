@@ -1,4 +1,12 @@
-/* ctime example */
+/*
+ * Copyright <first-year>-2026 Joseph Brendler
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * sleeper.cpp - test ctime and POSIX usleep countdown behavior
+ *
+ * compile with: g++ sleeper.cpp -o sleeper
+ */
+
 #include <ctime>	// time_t, time, ctime
 #include <cstdio>	// printf
 #include <unistd.h>	// POSIX - usleep

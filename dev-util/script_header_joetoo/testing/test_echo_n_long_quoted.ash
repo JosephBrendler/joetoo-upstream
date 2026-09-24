@@ -1,4 +1,7 @@
 #!/bin/sh
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # verbosity=${_verbosity} echo_n_long v0.2.0 test battery
 
 script_header_installed_dir=/home/joe/myUtilities/dev-util/script_header_joetoo

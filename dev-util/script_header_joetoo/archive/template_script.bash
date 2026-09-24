@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # template script employing script_header_joetoo (extended)
 
 # source headers

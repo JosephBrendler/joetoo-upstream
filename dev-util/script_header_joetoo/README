@@ -1,0 +1,129 @@
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+Strategy - determine scope boundary of script_header_joetoo and the other headers it will source
+
+script_header_joetoo_unicode
+    named Unicode definitions
+    registries
+    idx_of_emoji()
+    name_of_emoji()
+    Unicode-related lookup/runtime metadata
+
+script_header_joetoo_uiassets
+    static terminal/UI byte assets:
+        BEL BS HT LF VT FF CR ESC US DEL SO SI
+        CSI
+        SGR/style constants
+        Ron/Gon/.../BGon/Boff/etc.
+        ESCon/ESCoff/ESG1 if they are static terminal sequences
+    compiled Unicode UI assets:
+        bin_*
+        idx_*
+    complete SED_LOG_FILTER
+
+script_header_joetoo
+    Foundation: Global state initialization including sourcing headers above, to load curated UI assets
+        including unicode character registries, terminal ANSI/DEC SGR variables, and pre-cooked UI assets
+        1 -  truth testing for several types of values
+            * TrueFalse() - a simple utility to translate types of "truth" to a True/False string
+            * status_color() - a simple utility to generate G/Y/R/W coloring according to input "truth"status
+            * j_msg -n and right_status as agents in the announce/act/report-results idiom
+        2 - unicode character registry content and capability
+            * separator() for layout, output separation
+            * get_longest() and repeat() as agents in fixed width column layout
+            * emoji_safe() for dynamic emoji generation and $bin_emojiname (precooked)
+            * ACTIVE_ZERO_WIDTH_- _EMOJI_- and _I_BOX_REGISTRY content
+            * use of | od -An -t x1 idiom for unicode binary (hex) byte verification
+            * auto-setting of emoji and ascii prefix for j_msg, according to severity
+            * use of DEBUG environment variable on cmdline, to override severity for j_msg
+
+    Core Logic: Strict POSIX validation layer for numeric types - isint, ishexint, isnumeric - and environmental
+        state - checkroot, checkboot
+        1 - core logic functions including numreic validation
+            * isint() - tests if input is a decimal integer
+            * isfloat_posix() - tests if input is a floating point decimal number
+            * ishexint() - recognizes hexadecimal integers per shell standards
+            * isnumeric() - tests if input is any valid numeric type (Dec, Hex, or Float)
+        2 - core logic/environment validation functions
+            * vercomp() - compare software version numbers
+            * isroot, checkroot, checknotroot - check if user is/not root
+            * checkboot - check if boot/efi is mounted
+            * pad() - used to dynamically pad data for vertical alignment
+
+    Functional Pillars: Three distinct systems: 1: UI & Layout Management, 2: Messaging & Logging, and 3: The CLI
+        Framework & Templates
+        1 - UI & Layout Management: includes grapheme-aware width calculation(get_msg_len), backslash-immunized
+            word wrapping (smart_wrap_n), plus progress bars, countdown clocks, cursor controls and both DEC Special
+            Graphics and unicode box-drawing functions
+            A - Terminal control
+                * SCP/RCP/HCU/SCU/CUP/CUF/CUB; the header also supports HVP/CUU/CUD/CPR/QCR/QCC
+                * CLR/EL, vt_init, (depends on ui assets incl. SO/SI, ESC sourced from script_header_joetoo_uiassets)
+            B - Box-drawing / UI widgets
+                * box_esca, box_shift, box_msg, u_box_msg, progress_inline
+            C - Other UI tools
+                * handle_result(), right_status(), separator()
+            D - Layout engines / string utilities
+                * strip_ansi, _translate_escapes, get_longest, get_msg_len, repeat, pad, smart_wrap_n
+                * get_longest(), and repeat()
+
+        2 - Messaging & Logging: includes a simple and flexible unicode-capable messenger (j_msg) implementing
+            RFC-5424 severity and both verbosity-controlled screen emission, and loglevel-controlled integrated
+            file logging; and a bitmask driven environmentally aware centralized output stream manager (emit),
+            the real-time engine for screen and log message ouput behind j_msg
+            A - integrated messaging/logging capabilities
+                * DEBUG and QUIET environment variables
+                * verbosity, loglevel, and logFile environment variables
+                * j_msg - verbosity/loglevel conditional output
+                * j_msg - emoji and ascii prefixing with -P\p -M/m, UNICODE_DISABLE
+                * j_msg - output to logFile (timestamped, sanitized)
+                * j_msg - orientation with "j_msg -h"
+                * j_msg - orientation with "summarize_header -f j_msg"
+        3 - CLI Framework & Templates: includes an option flag and argument policy engine (process_cmdline),
+            automated usage generation, automated variable initialization, configuration, a and display for
+            validation (show_config), a complex interactive command sequencer (run_sequence) and the
+            joetoo_cli_example rapid-deployment application templates
+            A - command line interface capabilities
+                * joetoo_cli_example templates and their usage
+                * app_configure() - initialize, configure app variables
+                * show_config() - display app variable state
+                * process_cmdline() - command line option/argument parsing
+                * run_sequence() - for complex interactive sequence of actions
+                * joetoo_cli_example() - template for app with complex interactive sequence
+                * joetoo_cli_example_mini() - template for app with simple script action
+
+script_header_joetoo_extended
+    Modern shell (Bash) functions that are NOT POSIX compliant but are much more capable, safe, and elegant
+        relative to POSIX alternatives
+        * isnumeric() .................  wrapper for broadest determination
+        * isfloat() ...................  deprecated (now a wrapper for isfloat_regex
+        * isfloat_regex() .............  regex (non-POSIX) test if $1 is a floating point number; return true/false
+        * map() .......................  linearly map input number from input range to output range
+        * RGB_FG() ....................  echo esc seq color as RGB. (OK in Konsole/Gnome term, but not lxterminal)
+        * RGB_BG() ....................  echo esc seq color as RGB. (OK in Konsole/Gnome term, but not lxterminal)
+        * list_unused_disks() .........  list block devices with no active mountpoint
+        * progress() ..................  show progress arrow (visualize $1 of $2 steps complete)
+        * bs() ........................  recursive binary search for $1 target(s) from $2 start(d) to $3 end(d) in
+                                         search_list $@ (after 3 shifts)
+        * bs_2() ......................  (BASH) binary recursive search of array named by $1 for tartet $2 between start $3
+                                         and end $4
+        * run_array() .................  (BASH) run command sequence stored in 0-indexed ${command_sequence[@]};
+                                         $1=status_file, $2=start, $3=stop
+        * validate_subnet() ...........  (BASH) validate a subnet by delegation
+        * validate_ipv6_subnet() ......  (BASH) validate an IPv6 subnet
+        * validate_ipv4_subnet() ......  (BASH) validate an IPv4 subnet
+        * extract_distccd_settings() ..  
+
+script_header_joetoo_ssh
+    POSIX functions providing ssh key management
+        * _cleanup_stale_ssh_environment() ..  (POSIX) remove stale ssh agent data for clean slate
+        * start_ssh_agent() .................  (POSIX) clean up and start ssh agent
+        * load_key() ........................  (POSIX) load ssh key for duration of requiring command
+        * unload_key() ......................  (POSIX) unload ssh key
+        * stop_ssh_agent() ..................  (POSIX) stop ssh agent and remove persistence info
+
+script_header_joetoo_compat
+    Compatibility header mapping deprecated functions to their current equivalent with warnings as appropriate
+
+script_header_joetoo_noninteractive
+    Sourced by non-interactive shells to unset color/terminal controls built for ui

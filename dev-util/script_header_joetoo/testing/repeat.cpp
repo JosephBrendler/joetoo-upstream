@@ -1,7 +1,13 @@
-/*********************************************
- *  repeat.cpp -- test program               *
- *  compile with:  g++ repeat.cpp -o repeat  *
- *********************************************/
+/*
+ * Copyright <first-year>-2026 Joseph Brendler
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * repeat.cpp - test program for repeat and separator functions
+ *
+ * compile with:
+ * $ g++ repeat.cpp -o repeat
+ */
+
 #include <iostream>
 #include <string>
 

@@ -19,13 +19,16 @@ GPL-3.0-or-later
 
 # required-license-texts:
 GPL-3.0-or-later
+Unicode-3.0
 
 # provenance-summary:
 # The copyrightable software in this package is authored by Joseph Brendler
 # and is distributed under GPL-3.0-or-later.
 
-# Some scripts manipulate Unicode code points, UTF-8 byte sequences, and
-# Unicode characters. No Unicode-licensed data files or other Unicode
-# source material are distributed as part of this package.
-
-# No additional third-party license texts are required for this package.
+# With USE=unicode_data, this package additionally installs reference data
+# obtained from the Unicode Consortium, which the package's source tarball
+# thus includes unconditionally.  Unicode data files and software in
+# this optional payload are distributed under the Unicode License v3
+# (SPDX: Unicode-3.0), except where an individual upstream file states
+# otherwise. The corresponding Unicode-3.0 license text is therefore included in the
+# package license payload.

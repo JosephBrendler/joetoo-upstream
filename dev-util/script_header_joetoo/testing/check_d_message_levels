@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 inputfile=$1
 source /usr/sbin/script_header_joetoo
 if [[ ! -e ${inputfile} || $# -eq 0 ]]

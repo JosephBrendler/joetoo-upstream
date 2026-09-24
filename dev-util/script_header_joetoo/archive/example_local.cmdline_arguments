@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # user-script specific commandline argument module (to extend process_argument)
 # ** will be sourced by using script **
 # set result=0 for success with no operand
