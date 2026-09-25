@@ -402,6 +402,20 @@ UNICODE_DISABLE="$FALSE"  # this can be set manually by a user .conf, to opt out
 #-----[ load unicode registries ]------------------------------------------------------------
 . "${JOETOO_HEADER_DIR}/script_header_joetoo_registries"
 
+# (use by-name idx_ and bin_ to assign by-severity idx_ and bin_ ) (formerly in _precook_registry)
+idx_severity_01_emoji="$idx_cross_mark"            # emerg|alert
+bin_severity_01_emoji="$bin_cross_mark"            # emerg|alert
+idx_severity_23_emoji="$idx_explosion"             # crit|err
+bin_severity_23_emoji="$bin_explosion"             # crit|err
+idx_severity_4_emoji="$idx_warning"                # warn
+bin_severity_4_emoji="$bin_warning"                # warn
+idx_severity_5_emoji="$idx_sparkles"               # notice
+bin_severity_5_emoji="$bin_sparkles"               # notice
+idx_severity_6_emoji="$idx_face_grin"              # info
+bin_severity_6_emoji="$bin_face_grin"              # info
+idx_severity_7_emoji="$idx_magnifying_glass_left"  # debug
+bin_severity_7_emoji="$bin_magnifying_glass_left"  # debug
+
 #-----[ functions supporting unicode registries ]--------------------------------------------
 # to-do: relocate. for now, these must precede j_msg() definition
 
