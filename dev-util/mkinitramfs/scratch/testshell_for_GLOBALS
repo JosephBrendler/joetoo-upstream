@@ -1,0 +1,14 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+user="joe"
+GLOBALS="/home/${user}/joetoo-upstream/dev-util/mkinitramfs/GLOBALS"
+
+if source "$GLOBALS" ; then
+    echo "KERNELVERSION: $KERNEL_VERSION"
+else
+    echo "you shouldn't see this, because sourcing globals should have exited"
+fi
+
+

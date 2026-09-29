@@ -1,8 +1,9 @@
 #!/bin/bash
-# ckinitramfs
-# joe brendler, 17 May 2018
-# check to see if initramfs should be rebuilt
-#  (i.e. if normally included components have changed since last build)
+# Copyright 2018-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# ckinitramfs - check the files used to build the latest initramfs and alert if it needs to be rebuild
+# (i.e. if normally included components have changed since last build)
 
 source /usr/sbin/script_header_joetoo
 

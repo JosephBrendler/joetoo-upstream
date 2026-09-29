@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2012-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Joe Brendler  29 Dec 2012
 #   for version history and "credits", see the accompanying "historical_notes" file
 #   as ov version 5.2, this script is provided separately, in case the user does

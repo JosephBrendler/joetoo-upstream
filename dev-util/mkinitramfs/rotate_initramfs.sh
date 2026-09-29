@@ -1,7 +1,8 @@
 #!/bin/bash
+# Copyright 2020-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # rotate_initramfs
-# joe Brendler 20 Nov 2020
 
 # determine direction
 direction="${1:-forward}"

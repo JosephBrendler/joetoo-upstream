@@ -1,0 +1,23 @@
+# list of package-relative file pathnames in which there should NOT be a copyright statement
+./COPYRIGHT.exceptions
+./LICENSE
+./LICENSES.package
+# exceptions specific to mkinitramfs
+./scratch/qemu_usbkey.img
+# modules files that probably are not even used - just not yet pruned
+./etc/lvm/lvm.conf
+./etc/modules/sata
+./etc/modules/scsi
+./etc/modules/crypto
+./etc/modules/lvm
+./etc/modules/ataraid
+./etc/modules/net
+./etc/modules/dmraid
+./etc/modules/mdadm
+./etc/modules/iscsi
+./etc/modules/waitscan
+./etc/modules/pata
+./etc/modules/firewire
+./etc/modules/pcmcia
+./etc/modules/fs
+./etc/modules/usb

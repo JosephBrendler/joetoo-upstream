@@ -1,5 +1,8 @@
 #!/bin/bash
-# make_sources.sh (formerly mkinitramfs.sh) -- set up my custom initramfs
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# make_sources.sh - (formerly mkinitramfs.sh) -- set up custom initramfs
 # Joe Brendler - 9 September 2014  (adopting new layout 6 Jan 2025)
 #    for version history and "credits", see the accompanying "historical_notes" file
 

@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # placeholder - make sources still looks for this file, so keep one here for now.
 # purpose - house ash functions that do not belong in script_header_joetoo (but there are none)

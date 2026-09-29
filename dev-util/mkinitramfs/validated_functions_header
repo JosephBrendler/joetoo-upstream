@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 #  20260126 - changed from #!/bin/ash after revising all contained functions to be fully POSIX compliant
 

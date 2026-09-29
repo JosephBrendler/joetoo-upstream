@@ -1,4 +1,6 @@
-Joe Brendler's "mkinitramfs" project
+# Copyright 2008-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+Joe Brendler's "mkinitramfs" project - historical_notes
 
 Credits:
 # based on concepts and techniques in:
@@ -10,6 +12,23 @@ Credits:
 #   http://blog.infion.de/archives/2007/05/15/Full-disk-encryption-with-LUKS-on-new-notebook/
 #
 #   http://en.gentoo-wiki.com/wiki/Custom_Initramfs  *** new tips as of 31 Dec 14 ***
+#
+#   see also busybox mdev primer at /usr/share/doc/busybox-<currentversion>/txt/mdev.txt.bz2
+#
+
+----[ cenerated initramfs licensing ]--------------------
+mkinitramfs builds an initramfs locally from software already installed
+on the user's system.  The generated image may therefore contain copies
+of separately packaged software such as BusyBox, cryptsetup, LVM, and
+their supporting libraries.
+
+Those components retain their respective copyrights and licenses; they
+are not distributed as part of the mkinitramfs source package.
+
+The intended use of mkinitramfs is to generate an initramfs for the
+system on which it is run.  If a user chooses to redistribute a generated
+initramfs, the user should review and comply with the redistribution
+requirements of the software incorporated into that image.
 
 Historical Notes:
 

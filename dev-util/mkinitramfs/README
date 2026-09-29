@@ -1,4 +1,9 @@
-Basic instructions for setting up a system with encrypted storage and my custom initramfs
+# Copyright 2008-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# README
+
+Basic instructions for setting up a joetoo system with encrypted storage and custom initramfs
 #
 # Joe Brendler - 9 Nov 2008
 References:
@@ -226,6 +231,21 @@ CONFIG_INITRAMFS_SOURCE="/usr/src/initramfs"
 and compiling your kernel
 Note: *** if you will compile the initramfs into the kernel, then you do not
 need to run the wrapper script mkinitramfs; the make_sources script will suffice!
+
+*** Generated initramfs licensing
+
+mkinitramfs builds an initramfs locally from software already installed
+on the user's system.  The generated image may therefore contain copies
+of separately packaged software such as BusyBox, cryptsetup, LVM, and
+their supporting libraries.
+
+Those components retain their respective copyrights and licenses; they
+are not distributed as part of the mkinitramfs source package.
+
+The intended use of mkinitramfs is to generate an initramfs for the
+system on which it is run.  If a user chooses to redistribute a generated
+initramfs, the user should review and comply with the redistribution
+requirements of the software incorporated into that image.
 
 # 3. reboot - good luck
 

@@ -1,6 +1,11 @@
 #!/bin/bash
-# Joe Brendler - 11 November 2016
-# Wrapper script to automate my initramfs build procedure
+# Copyright 2016-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# mkinitramfs - wrapper script to automate my initramfs build procedure
+
+# for version history and "credits", see the accompanying "historical_notes" file
+
 # The GLOBALS file identifies the SOURCES_DIR (e.g. /usr/src/initramfs),
 # the SCRIPT_HEADER_DIR, and the MAKE_DIR (parent dir of this script).
 # Note: you must run these scripts from the directory in which they

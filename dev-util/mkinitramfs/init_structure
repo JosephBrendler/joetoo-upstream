@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright 2015-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # bins need to be listed separately, for link-making
 bins=( /bin /sbin /usr/sbin /usr/bin )
@@ -66,7 +68,7 @@ other_content_src=(
   "/usr/sbin/script_header_joetoo"
   "/usr/sbin/script_header_joetoo_compat"
   "/usr/sbin/script_header_joetoo_unicode"
-  "/var/lib/joetoo/.joetoo_ui_asset_store"
+  "/usr/sbin/script_header_joetoo_uiassets"
   "${MAKE_DIR}/etc/lvm/lvm.conf"
   "${MAKE_DIR}/etc/modules"
 )
@@ -74,7 +76,7 @@ other_content_dest=(
   "${SOURCES_DIR}/usr/sbin/"
   "${SOURCES_DIR}/usr/sbin/"
   "${SOURCES_DIR}/usr/sbin/"
-  "${SOURCES_DIR}/var/lib/joetoo/"
+  "${SOURCES_DIR}/usr/sbin/"
   "${SOURCES_DIR}/etc/lvm/"
   "${SOURCES_DIR}/etc/"
 )
