@@ -69,10 +69,12 @@ other_content_src=(
   "/usr/sbin/script_header_joetoo_compat"
   "/usr/sbin/script_header_joetoo_unicode"
   "/usr/sbin/script_header_joetoo_uiassets"
+  "/usr/sbin/script_header_joetoo_registries"
   "${MAKE_DIR}/etc/lvm/lvm.conf"
   "${MAKE_DIR}/etc/modules"
 )
 other_content_dest=(
+  "${SOURCES_DIR}/usr/sbin/"
   "${SOURCES_DIR}/usr/sbin/"
   "${SOURCES_DIR}/usr/sbin/"
   "${SOURCES_DIR}/usr/sbin/"
