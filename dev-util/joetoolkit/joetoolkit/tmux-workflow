@@ -155,8 +155,27 @@ cmd_attach() {
     if ! LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" send-keys "j_msg -${notice} -p 'Attached successfully'" C-m ; then
         j_msg "-${warn}" -p "Unable to pre-position attached message"
     fi
-    # now actually attach to the session
-    if LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" attach -t "$session"; then _a_result=0; else _a_result=$?; fi
+    # prepare to attach -- get pid in addition to session and sock above, so as to immunize against dynamic upgrade
+    # of the tmux executable while the session is running (which will result in an attach failure
+    # with the misleading message: "open terminal failed: not a terminal" but can be diagnosed by noting
+    # /proc/<pid>/exe --> '/usr/bin/tmux (deleted)'
+    # reference - https://github.com/tmux/tmux/wiki/Formats/
+    # "a format is a string containing special directives contained in #{} which tmux will expand
+    # (display-message -p prints the result rather than displaying it in the status line)
+    local server_pid=$(tmux -S "$sock" display-message -p '#{pid}')
+    # Note: a tmux-workflow session should preferentially be attached using the same executable inode as its server
+    # whenever the installed tmux executable has changed
+    # ( -ef checks if two files have the same device and inode number )
+    if [ /proc/"$server_pid"/exe -ef "$(command -v tmux)" ]; then
+        # inode is the same - tmux executable has not changed since session started (attach normally)
+        if LC_CTYPE=en_US.utf8 tmux -S "$SOCK_PATH" attach -t "$session"; then
+            _a_result=0; else _a_result=$?; fi
+    else
+        # inode is the NOT same - tmux executable HAS changed since session started (attach with /proc/<pid>/exe)
+        if LC_CTYPE=en_US.utf8 /proc/"$server_pid"/exe -S "$SOCK_PATH" attach -t "$session"; then
+            _a_result=0; else _a_result=$?; fi
+
+    fi
     # this wont run until user detaches from or kills from inside the session, so report detachment or failure to attach
     j_msg "-${notice}" -p -n "tmux result:"
     # note: using if ! handle_result; then doesn't work becuase $? becomes 0
@@ -231,7 +250,11 @@ cmd_info() {
             # extract session name
             session=$(basename "$sock" .sock)
             # extract PID of tmux server
-            pid=$(pgrep -f "tmux -S $sock" || echo "unknown")
+#            pid=$(pgrep -f "tmux -S $sock" || echo "unknown")
+            # https://github.com/tmux/tmux/wiki/Formats/
+            # "a format is a string containing special directives contained in #{} which tmux will expand
+            # (display-message -p prints the result rather than displaying it in the status line)
+            pid=$(tmux -S "$sock" display-message -p '#{pid}')
             # extract creation time
             created=$(tmux -S "$sock" display-message -p "#{session_created}")
             created_human=$(date --date="@${created}" "+%Y-%m-%d %H:%M:%S")
