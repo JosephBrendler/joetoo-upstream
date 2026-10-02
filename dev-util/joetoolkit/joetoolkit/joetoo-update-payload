@@ -1,0 +1,31 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# joetoo-update-payload - update payload (called from remote machine via ssh)
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
+
+# run as root on local machine - called by remote ssh sudo
+# (using NOPASSWD authorization in /etc/sudoers.d/99joetoo-update-payload
+#  distributed by joetoo-common-meta)
+checkroot
+
+[ $# -eq 1 ] || { echo "usage: $PN <payload>" ; exit 1 ; }
+payload="$1"
+
+# check if package identified as payload needs update; exit 0 if not
+j_msg "-${notice}" -p -n "checking [$payload] on [$(hostname)] ..."
+if ! eix -ec \"$payload\" | grep -q "\[${P0}U${P0}\]"; then result=0; else result=$?; fi
+handle_result "$result" "up to date" "needs update" "$notice" && exit 0
+
+# update package
+if emerge -v1 \"$payload\"; then emerge_result=0; else emerge_result=$?; fi
+j_msg "-${notice}" -p -n "[$(hostname)] emerge result: ..."
+handle_result "$emerge_result" "ok" "error [$emerge_result]" "$notice"

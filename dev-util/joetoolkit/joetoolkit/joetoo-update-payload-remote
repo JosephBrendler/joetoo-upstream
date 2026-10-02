@@ -1,0 +1,42 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# joetoo-update-payload-remote - update payload on remote machines via ssh
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
+
+[ $# -eq 1 ] || { echo "usage: $PN <payload>" ; exit 1 ; }
+payload="$1"
+
+user="joe"
+machine_list_file="/home/${user}/scratch/joetoo_machine_list"
+
+# run this as regular user for ssh access
+checknotroot
+
+# read machine_list (ignore comments and blank lines)
+readarray -t machine_list < <( grep -v "^${W0}#" "$machine_list_file" | sed "/^${W0}$/d" )
+
+# set up ssh_cmd
+ssh2_cmd="eix -ec \"$payload\""
+ssh_cmd="sudo sudo joetoo-update-payload \"$payload\""
+
+# iterate through array
+for machine in "${machine_list[@]}"; do
+    separator "${PN}-${BUILD}" "(${payload} -> ${machine}})"
+    # MANPAGER=cat man ssh | grep -E ' -q|  -n'
+    #   -n      Redirects  stdin from /dev/null (actually, prevents reading from stdin)
+    #   -q      Quiet mode.  Causes most warning and diagnostic messages to be suppressed
+    #   -t      Force pseudo-terminal allocation (to execute arbitrary screen-based program)
+    j_msg "-${notice}" -p "Checking [$payload] on [$machine] via ssh ..."
+    if ssh -n -q "$machine" "$ssh_cmd"; then ssh_result=0; else ssh_result=$?; fi
+    j_msg "-${notice}" -p -n "ssh result:"
+    handle_result "$ssh_result" "ok" "error [$ssh_result]" "$notice"
+done
