@@ -1,10 +1,11 @@
-# --- /etc/distcc/hosts -----------------------
-# See the Hosts Specification section of
-# man distcc for the format of this file.
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# /etc/distcc/hosts - See the Hosts Specification section of man distcc for the format of this file
 #
 # By default, just test that it works in loopback mode.
 #127.0.0.1/4
-# recommendation below produced by glad_farm
+# recommendation below produced by draft distcc-estimator
 # as of 20251029-17:39:55
 gmki91,lzo/15             # 21478                  
 gmki92,lzo/4              # 20835                  

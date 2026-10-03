@@ -1,0 +1,106 @@
+# package licensing summary for joetoo-common-meta
+#
+# This file documents conclusions drawn from provenance review
+#   (copyright and licensing applicable to package contents) and is built to be
+#   machine-readable so that the joetoo "tarup" script can use it to
+#   determine exactly which licenses to include in the package tarball
+#   by non-blank uncommented lines
+# Note: each of these license values must be a valid SPDX License Identifiers
+#   and each identifier must be listed on its own single line
+#   to be unambiguous and machine readable. For Example (for a single license) --
+#     GPL-3.0-or-later
+# Note: if upstream documents licenses with SPDX License Expressions,
+#   will have to resolve them to determine which individual license texts tarup
+#   should install. For example (when a component part of the package allows user choice) --
+#     MIT OR Apache-2.0 --> drop "OR" and list each on a separate line
+# (Reference: https://spdx.org/licenses/)
+
+# package-license:
+GPL-3.0-or-later
+
+# required-license-texts:
+GPL-2.0-only
+GPL-2.0-or-later
+GPL-3.0-only
+GPL-3.0-or-later
+BSD-2-Clause
+BSD-3-Clause
+LGPL-2.1-only
+PHP-3.01
+AGPL-3.0-only
+ISC
+
+# provenance-summary:
+# joetoo-originated software and configuration content in this package
+# is authored by Joseph Brendler and distributed under GPL-3.0-or-later,
+# except where individual files retain or inherit other upstream licensing.
+
+# ./etc/openvpn/server.conf, ./etc/openvpn/openvpnkeys_2024/joetoo-local.ovpn, and
+# ./etc/openvpn/openvpnkeys_2024/joetoo-remote.ovpn are derived from sample config files
+# distributed by OpenVPN Inc under upstream license: GPL-2.0-only
+
+# ./etc/openvpn/openvpnkeys_2024/joetoo-up.sh and /etc/openvpn/openvpnkeys_2024/joetoo-down.sh
+# are derived from work contributed to the Gentoo project by Roy Marples (uberlord@gentoo.org)
+# distributed under the terms of the GNU General Public License v2 (GPL-2.0-only)
+
+# etc/dhcpcd.conf is derived from known upstream standard dhcpcd.conf configuration template
+# by Roy Marples / dhcpcd project; License: BSD-2-Clause
+# joetoo modifications by Joseph Brendler --
+# extensive joetoo-specific DHCPv4/DHCPv6, SLAAC, interface,
+# OpenRC/netifrc, Xen, router, and DDNS configuration changes.
+
+# files distributed in ./etc/logrotate.d are derived from configuration
+# files distributed by the Gentoo packages tabulated below. The license values
+# below are the Gentoo package LICENSE values for the originating packages.
+# They are recorded as provenance and to identify license texts potentially
+# required in the joetoo-common-meta tarball. They do NOT included here to
+# assert that every individual logrotate configuration file is independently
+# governed by every license listed for its originating package.
+#   net-misc/rsync-3.5.1			GPL-3 GPL-3+ GPL-2	GPL-3.0-only OR GPL-3.0-or-later OR GPL-2.0-only
+#   app-admin/sysklogd-2.7.2		BSD					BSD-3-Clause (Gentoo BSD generally implies 3-Clause)
+#   net-vpn/openvpn-2.7.6			GPL-2				GPL-2.0-only
+#   app-forensics/rkhunter		GPL-2+				GPL-2.0-or-later
+#   dev-db/mysql-8.4.11			GPL-2				GPL-2.0-only
+#   sys-devel/distcc-3.4-r9		GPL-2+				GPL-2.0-or-later
+#   app-emulation/libvirt-12.7.0	LGPL-2.1			LGPL-2.1-only
+#   dev-lang/php-8.4.26			PHP-3.01			PHP-3.01
+#   www-apps/nextcloud-35.0.1		AGPL-3				AGPL-3.0-only
+#   sys-apps/openrc-0.64.1		BSD-2				BSD-2-Clause
+#   sys-process/cronie-1.7.2-r1	ISC BSD BSD-2 GPL-2+	ISC AND BSD-3-Clause AND BSD-2-Clause AND GPL-2.0-or-later
+#   net-firewall/conntrack-tools	GPL-2+				GPL-2.0-or-later
+#   sys-apps/portage-3.0.82.2		GPL-2				GPL-2.0-only
+
+# ./boot/grub/Gentoo-Joetoo-Glass-Violette-Colors-White_2.png was created as a
+# modified/derived work based on the upstream Gentoo wallpaper image:
+# "Gentoo wallpaper 4k" (Source: https://www.pling.me/p/1232579)
+# Uploader: VITROOT; Version: 1.0; License: GPLv3 (GPL-3.0-only)
+# joetoo modifications by Joseph Brendler (with AI assistance) --
+#    - changed the background to a brighter white studio background
+#    - added the multicolor translucent "joetoo" glass wordmark
+#    - changed the relative size, placement, and perspective of the
+#      joetoo wordmark and Gentoo glass logo
+#    - prepared the final image for use as a GRUB boot splash
+#    - resized/extended the final image to 1920x1200
+# License: GPLv3, following the upstream work.
+
+#  ./etc/ssh/sshd_banner - is derived from an original demonstration by John Brendler
+#  Used with author's permission; Copyright/license treatment intentionally not asserted here.
+
+# ./etc/rsync/rsyncd.motd contains third-party ASCII artwork (http://www.network-science.de/ascii/)
+# generated using a web-hosted html front end for the FigLet app (c) 1991, 1993, 1994 Glenn Chappell
+# and Ian Chai, and using the "big" font authored by Glenn Chappell 4/93 (based on the standard font),
+# explicitly granting permission to copy, paste, and use the generated graphic
+# Font contributors noted in big.flf: Glenn Chappell - original "Big" font, April 1993
+# Bruce Jakeway - Greek characters; Paul Burton - 1996 modifications for newer FIGlet parameter
+# joetoo customization - Joseph Brendler selected the font and generated the "joetoo" text
+
+# ./etc/default/grub is derived from standard Gentoo config file copyright 1999-2020 Gentoo Authors,
+# distributed under the terms of the GNU General Public License v2 (GPL-2.0-or-later)
+
+# note: find un-copyrighted files --
+# for x in $(find ./ -type f); do grep -i -q copyright $x || echo $x; done
+# get license info from ebuilds --
+# for x in grub ...; do
+#    separator $x "(licenses)";
+#    grep -i license $(find /var/db/repos/gentoo/ -iname "${x}*.ebuild" | sort -rV | head -n1);
+# done

@@ -1,3 +1,7 @@
+# Copyright 2025-2026 Joseph Brendler
+# Derived from logrotate configuration distributed by Gentoo
+#
+
 # Portage logs
 #/var/log/emerge.log /var/log/portage/* /var/log/portage/elog/* {
 /var/log/emerge.log {

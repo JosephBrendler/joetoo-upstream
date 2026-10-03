@@ -1,4 +1,10 @@
 #!/bin/sh
+# Copyright 2025-2026 Joseph Brendler
+# Copyright (c) 2006-2007 Gentoo Foundation
+# Distributed under the terms of the GNU General Public License v2
+# Derived from work contributed by Roy Marples (uberlord@gentoo.org)
+# SPDX-License-Identifier:  GPL-2.0-only
+
 # /etc/openvpn/openvpnkeys_2024/joetoo-up.sh
 # dual-stack DNS integration for joetoo architecture
 

@@ -1,3 +1,6 @@
+# Copyright 2025-2026 Joseph Brendler
+# Derived from configuration distributed by Gentoo
+
 # This file is managed by distcc-config; use it to change these settings.
 # DISTCC_LOG and DISTCC_DIR should not be set.
 DISTCC_VERBOSE="0"

@@ -1,3 +1,7 @@
+# Copyright 2015-2026 Joseph Brendler
+# Derived from configuration distributed by Gentoo
+#
+
 #       $OpenBSD: ssh_config,v 1.36 2023/08/02 23:04:38 djm Exp $
 
 # This is the ssh client system-wide configuration file.  See

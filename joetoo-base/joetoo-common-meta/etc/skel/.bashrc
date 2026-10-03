@@ -1,3 +1,6 @@
+# Copyright 2025-2026 Joseph Brendler
+# Derived from configuration distributed by Gentoo
+
 # /etc/skel/.bashrc
 #
 # This file is sourced by all *interactive* bash shells on startup,

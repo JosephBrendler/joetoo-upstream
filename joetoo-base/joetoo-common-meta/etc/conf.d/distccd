@@ -1,3 +1,7 @@
+# Copyright 2015-2026 Joseph Brendler
+# Derived from configuration distributed by Gentoo
+#
+
 # /etc/conf.d/distccd: config file for /etc/init.d/distccd
 
 DISTCCD_OPTS=""

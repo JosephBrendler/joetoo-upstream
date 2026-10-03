@@ -1,3 +1,7 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Derived from the Gentoo/cronie system crontab template
+
 # for cronie
 HOME=/
 # Global variables

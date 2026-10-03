@@ -1,0 +1,5 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# allow user joe connected via ssh to run this command as root
+joe ALL=(root) NOPASSWD: /usr/sbin/joetoo-update-payload *

@@ -1,0 +1,10 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+magick Iridescent_Glass_Joetoo_Logo_LittleGentoo.png \
+    -resize 1920x1200 \
+    -gravity center \
+    -background white \
+    -extent 1920x1200 \
+    Gentoo-Joetoo-Glass-Violette-Colors-White_2.png

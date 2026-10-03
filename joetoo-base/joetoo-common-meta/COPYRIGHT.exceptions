@@ -1,0 +1,12 @@
+# list of package-relative file pathnames in which there should NOT be a copyright statement
+./COPYRIGHT.exceptions
+./LICENSES.package
+# joetoo-common-meta content or empty files, not configs
+./boot/grub/Gentoo-Joetoo-Glass-Violette-Colors-White_2.png
+./boot/grub/Lavender_Glass_Logo_with_Iridescent_Joetoo_Wordmark.png
+./boot/grub/Iridescent_Glass_Joetoo_Logo_Larger_Gentoo.png
+./boot/grub/Iridescent_Glass_Joetoo_Logo_LittleGentoo.png
+./var/log/distcc/distccd.log
+./etc/rsync/rsyncd.motd
+./etc/resolv.conf.tail
+./etc/resolv.conf.head

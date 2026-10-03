@@ -1,3 +1,7 @@
+# Copyright 2015-2026 Joseph Brendler
+# Derived from configuration distributed by Gentoo
+#
+
 # /etc/conf.d/apache2: config file for /etc/init.d/apache2
 
 # When you install a module it is easy to activate or deactivate the modules

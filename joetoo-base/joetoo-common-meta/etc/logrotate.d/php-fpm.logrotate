@@ -1,3 +1,7 @@
+# Copyright 2025-2026 Joseph Brendler
+# Derived from logrotate configuration distributed by Gentoo
+#
+
 /var/log/php-fpm.log /var/log/php-fpm-*.log.slow {
   create 600 root root
   size 5M

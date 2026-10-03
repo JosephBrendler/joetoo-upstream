@@ -1,1 +1,3 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 CONFIG_PROTECT="/root /etc/env.d /etc/default /etc/grub.d /etc/local.d"

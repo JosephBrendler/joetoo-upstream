@@ -1,3 +1,6 @@
+# Copyright 2025-2026 Joseph Brendler
+# Derived from configuration distributed by Gentoo
+
 # /etc/skel/.bash_profile
 
 # This file is sourced by bash for login shells.

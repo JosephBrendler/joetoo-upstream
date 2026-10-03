@@ -1,3 +1,6 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # This file defines which locales to incorporate into the glibc locale archive.
 # See the locale.gen(5) and locale-gen(8) man pages for more details.
 
