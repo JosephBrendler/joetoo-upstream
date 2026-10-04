@@ -1,62 +1,134 @@
 # Copyright 2015-2026 Joseph Brendler
 # Derived from configuration distributed by Gentoo
 #
+# /etc/conf.d/net - openrc netifrc configuration
+# (designed to be POSIX shell compatible; sys-apps/openrc is built with USE=-bash by default)
+
+# shell check will always complain about unused variables in sourced file like this
+# shellcheck disable=SC2034
 
 # domain and search should also get populated in resolv.conf by dhcpcd, but this is benign
 dns_domain="brendler"
 dns_search="brendler"
+
 # let dnsmasq on router tell client dhcpcd -> resolv.conf
 #dns_servers="192.168.62.17 192.168.63.1 192.168.1.1 8.8.8.8"
+
 # see also /etc/resolv.conf.head and/or .tail
 
 config_eth0="dhcp"
 dhcpcd_eth0=" -t 60 -j /var/log/dhcpcd-eth0.log"
 
-
 modules="wpa_supplicant"
+
 config_wlan0="dhcp"
 #dhcpcd_wlan0=" -d -t 120 -j /var/log/dhcpcd-wlan0.log"
 dhcpcd_wlan0=" -t 60 -j /var/log/dhcpcd-wlan0.log"
+
 wpa_supplicant_wlan0="-Dnl80211,wext -f /var/log/wpa_supplicant.log"
 rc_net_wlan0_provide="net"
 
 # use postup() to dispatch call from up hook to appropriate policy-enforcement functions
 # e.g. uncomment postup_slaac_client for SLAAC client mitigation of router NDP dysfunction
 postup() {
+    logger -t conf_d-net -p local5.info "postup invoked for IFACE [${IFACE}]"
+
+    # comment out/in (and configure below) these helper-function calls as appropriate
     postup_wlan_policy
+
 #    postup_slaac_client
-#    postup_vpn_client
+
+#    postup_vpn_client || \
+#        { ewarn "postup_vpn_client failed";
+#          # whatever policy enforcement action is needed ; }
+
+    # optionally enforce policy with if-then-else or command-chain above; just return 0 otherwise
     return 0
 }
 
-# turn off power saving
+# enforce wlan policy - turn off power_save
+# Configure _pwp_WLAN_INTERFACES below and uncomment call above if applicable
+# (i.e. if using wifi)
 postup_wlan_policy() {
-    case "$IFACE" in
-        wlan*)
-            iw dev "$IFACE" set power_save off ||
-                ewarn "failed to disable Wi-Fi power save on ${IFACE}"
-            ;;
-    esac
-    return 0
+    pwp_ret=0
+    #_pwp_WLAN_INTERFACES="wlan0 wlan1"
+    _pwp_WLAN_INTERFACES="wlan0"
+    _pwp_FAIL_MSG="(warning) postup_wlan_policy failed to disable power_save on IFACE [${IFACE}]"
+    logger -t conf_d-net -p local5.info "postup_wlan_policy invoked for IFACE [${IFACE}]"
+
+    if _run_for_interfaces "$_pwp_WLAN_INTERFACES" "$_pwp_FAIL_MSG" \
+        iw dev "$IFACE" set power_save off ; then
+        pwp_ret=0; else pwp_ret=$?; fi
+
+    unset -v _pwp_WLAN_INTERFACES _pwp_FAIL_MSG
+    return "$pwp_ret"
 }
 
 # Mitigate joetoo router (Elrond) not answering NDP neighbor solicitations
 #   for its fd62:6262:6262::17 LAN ULA address
-# Configure NEIGH_INTERFACES and uncomment below if applicable
-# (i.e. if that address is an on-link neighbor)
-#NEIGH_INTERFACES="eth0 eth1 eth2 wlan0"
+# Configure _psc_SLAAC_INTERFACES below and uncomment call above if applicable
+# (i.e. if that ULA address is an on-link neighbor)
 postup_slaac_client() {
-    case " ${NEIGH_INTERFACES} " in
-        *" ${IFACE} "*)
-            /usr/sbin/joetoo-install-elrond-neighbor "${IFACE}" ||
-                ewarn "failed to install Elrond IPv6 neighbor entry on ${IFACE}"
-            ;;
-    esac
-    return 0
+    psc_ret=0
+    _psc_SLAAC_INTERFACES="eth0 wlan0"
+    _psc_FAIL_MSG="(warning) postup_slaac_client failed to install router ipv6 neighbor entry on IFACE [${IFACE}]"
+    logger -t conf_d-net -p local5.info "postup_slaac_client invoked for IFACE [${IFACE}]"
+
+    if _run_for_interfaces "$_psc_SLAAC_INTERFACES" "$_psc_FAIL_MSG" \
+        /usr/sbin/joetoo-install-elrond-neighbor "${IFACE}" ; then
+        psc_ret=0; else psc_ret=$?; fi
+
+    unset -v _psc_SLAAC_INTERFACES _psc_FAIL_MSG
+    return "$psc_ret"
 }
 
 ### for future development ###
-postup_vpn_client() {   
-    ewarn "not implemented yet"
-    return 0
+# Configure _pvc_VPN_INTERFACES below and uncomment call above if applicable
+# (i.e. if using OpenVPN and a policy enforcement requirement is identified)
+postup_vpn_client() {
+    pvc_ret=0
+    _pvc_VPN_INTERFACES="tun0"
+    _pvc_FAIL_MSG="(warning) postup_vpn_client placeholder command failed on IFACE [${IFACE}]"
+    logger -t conf_d-net -p local5.info "postup_vpn_client invoked for IFACE [${IFACE}]"
+
+    if _run_for_interfaces "$_pvc_VPN_INTERFACES" "$_pvc_FAIL_MSG" \
+        echo " * postup_vpn_client invoked for IFACE [${IFACE}], but this is not implemented yet" ; then
+        pvc_ret=0; else pvc_ret=$?; fi
+
+    unset -v _pvc_VPN_INTERFACES _pvc_FAIL_MSG
+    return "$pvc_ret"
+}
+
+# helper function to run a command for a given interface if it matches vs interface list
+# warn if command fails, and return exit status, but do not die here (let that be a policy decision)
+_run_for_interfaces() {
+    rfi_ret=0
+    # argument validation
+    if [ "$#" -lt 3 ]; then
+        ewarn "_run_for_interfaces requires interface-list, failure-message, and command"
+        logger -t conf_d-net -p local5.err "_run_for_interfaces invoked with insufficient arguments"
+        return 2
+    fi
+
+    # assign _rfi_interface_list and _rfi_fail_msg from first two positional parameters
+    _rfi_interface_list="$1"
+    _rfi_fail_msg="$2"
+    shift 2
+    # the remaining positional parameters ($@) are the command to be executed
+
+    # match IFACE vs space-separated list
+    case " ${_rfi_interface_list} " in
+        *" ${IFACE} "*)
+            if "$@" ; then
+                rfi_ret=0
+            else
+                rfi_ret=$?
+                ewarn "$_rfi_fail_msg"
+                logger -t conf_d-net -p local5.warning "$_rfi_fail_msg"
+            fi
+            ;;
+    esac
+
+    unset -v _rfi_interface_list _rfi_fail_msg
+    return "$rfi_ret"
 }
