@@ -34,11 +34,7 @@ FALSE=""  # will evaluate to be logically false in a boolean operation
   # VAR=$TRUE or VAR=$FALSE; [ $VAR ] && echo true || echo false ; will always work as expected
 
 # allow a 'FORCE_RELOAD' variable - set $TRUE to bypass anti-recursion guards
-# note: to also force a "refresh" of ui assets, remove
-#   /dev/shm/.joetoo_ui_asset_cache_${user} and
-#   /var/lib/joetoo/.joetoo_ui_asset_store, and
-# re-emerge script_header_joetoo; set JOETOO_FORCE_RELOAD=$TRUE, and then source this file
-if [ -z "$JOETOO_FORCE_RELOAD:-${FALSE}" ]; then
+if ! [ "${JOETOO_FORCE_RELOAD:-${FALSE}}" ]; then
   # primary guard against recursive or excessive sourcing of this header file (use function check)
   # use command -v to check for function defined by header (more portable/faster POSIX than using type)
   if command -v emit &>/dev/null; then return; fi
