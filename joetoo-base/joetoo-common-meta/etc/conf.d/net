@@ -20,17 +20,43 @@ dhcpcd_wlan0=" -t 60 -j /var/log/dhcpcd-wlan0.log"
 wpa_supplicant_wlan0="-Dnl80211,wext -f /var/log/wpa_supplicant.log"
 rc_net_wlan0_provide="net"
 
+# use postup() to dispatch call from up hook to appropriate policy-enforcement functions
+# e.g. uncomment postup_slaac_client for SLAAC client mitigation of router NDP dysfunction
+postup() {
+    postup_wlan_policy
+#    postup_slaac_client
+#    postup_vpn_client
+    return 0
+}
+
+# turn off power saving
+postup_wlan_policy() {
+    case "$IFACE" in
+        wlan*)
+            iw dev "$IFACE" set power_save off ||
+                ewarn "failed to disable Wi-Fi power save on ${IFACE}"
+            ;;
+    esac
+    return 0
+}
+
 # Mitigate joetoo router (Elrond) not answering NDP neighbor solicitations
 #   for its fd62:6262:6262::17 LAN ULA address
 # Configure NEIGH_INTERFACES and uncomment below if applicable
 # (i.e. if that address is an on-link neighbor)
 #NEIGH_INTERFACES="eth0 eth1 eth2 wlan0"
-#postup() {
-#    case " ${NEIGH_INTERFACES} " in
-#        *" ${IFACE} "*)
-#            /usr/sbin/joetoo-install-elrond-neighbor "${IFACE}" ||
-#                ewarn "failed to install Elrond IPv6 neighbor entry on ${IFACE}"
-#            ;;
-#    esac
-#    return 0
-#}
+postup_slaac_client() {
+    case " ${NEIGH_INTERFACES} " in
+        *" ${IFACE} "*)
+            /usr/sbin/joetoo-install-elrond-neighbor "${IFACE}" ||
+                ewarn "failed to install Elrond IPv6 neighbor entry on ${IFACE}"
+            ;;
+    esac
+    return 0
+}
+
+### for future development ###
+postup_vpn_client() {   
+    ewarn "not implemented yet"
+    return 0
+}
