@@ -59,6 +59,8 @@ alias nobinmerge='MAKEOPTS="-j2 -l2" FEATURES="-getbinpkg -buildpkg -userpriv -d
 alias j1merge='MAKEOPTS="-j1" FEATURES="-getbinpkg -buildpkg -userpriv -distcc" emerge -1 --verbose-conflicts'
 alias nodistmerge='MAKEOPTS="-j2 -l2" FEATURES="-userpriv -distcc" emerge -1 --verbose-conflicts'
 
+alias     sw='ssh_wrapper'
+
 #-----[ my PATH ]-----------------------------------------------------------------------
 #export PATH=/usr/lib/distcc/bin:/usr/lib/ccache/bin:/bin:/sbin:/usr/sbin:/root/bin:/usr/local/sbin:/usr/local/bin:${PATH}:/opt/bin:/home/joe/script
 export PATH=/usr/lib/distcc/bin:${PATH}:/home/joe/script
