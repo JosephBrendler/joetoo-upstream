@@ -1,4 +1,0 @@
-# Copyright 2025-2026 Joseph Brendler
-# SPDX-License-Identifier: GPL-3.0-or-later
-
-move net-misc/ddns_updater net-misc/ddns
