@@ -1257,37 +1257,7 @@ terminal_mouse_off()   # (POSIX) disable terminal mouse reporting
 # @deps DECRST
 # @note disables common DEC/xterm mouse tracking and mouse-encoding modes
 
-# to-do: relocate this with swr
-ssh_wrapper()  # (POSIX) wrapper for ssh providing terminal-sanity hardening
-{ ssh_ret=0   #.......# return exit status for function
-  # save terminal state (assign null if failed; for safety under set -e)
-  _sw_old_stty=$(stty -g 2>/dev/null) || _sw_old_stty=""
-  # connect or collect exit status for the function if not successful
-  # (use command to bypass any ssh shell function and avoid wrapper recursion)
-  command ssh "$@" || ssh_ret=$?
-  # restore tty line-discipline state (warn if not successful)
-  if [ -n "$_sw_old_stty" ]; then
-    stty "$_sw_old_stty" 2>/dev/null || \
-      j_msg "-${warn}" -p "failed to restore tty state; status [$?]"
-  else
-    j_msg "-${warn}" -p "cannot restore tty state because none was saved"
-  fi
-  # guard against premature exit from ssh to app using mouse controls (e.g. tmux)
-  # (warn if not successful)
-  terminal_mouse_off || j_msg "-${warn}" -p "terminal_mouse_off failed; status [$?]"
-  # unset localized variables
-  unset -v _sw_old_stty
-  # return collected result
-  return "$ssh_ret"
-}
-# @usage ssh_wrapper <ssh-arguments...>
-# @args $@: arguments passed unchanged to ssh
-# @ret ssh exit status: remote command/session status, or 255 on ssh error
-# @deps ssh stty terminal_mouse_off j_msg
-# @vars ssh_ret
-# @rule restores saved tty state after ssh and disables terminal mouse reporting
-# @note terminal-recovery failures warn but do not replace the saved ssh result
-# maintainer note: upgraded from ssh "$1" to ssh "$@" for full ssh functionality
+# (see also ssh_wrapper function, relocated vic swr)
 
 #---[ Simple Cursor State Control ]-----------------------------------
 SCP() # (ANSI) save the current cursor position
@@ -4685,6 +4655,37 @@ pur() # (POSIX) ping ip address $1 until it is ready (0% loss of 3 packets)
 # @ret 0 when 3 consecutive pings succeed; 1 on timeout (1000 retries)
 # @note uses SCP/RCP for in-place terminal status updates
 
+ssh_wrapper()  # (POSIX) wrapper for ssh providing terminal-sanity hardening
+{ ssh_ret=0   #.......# return exit status for function
+  # save terminal state (assign null if failed; for safety under set -e)
+  _sw_old_stty=$(stty -g 2>/dev/null) || _sw_old_stty=""
+  # connect or collect exit status for the function if not successful
+  # (use command to bypass any ssh shell function and avoid wrapper recursion)
+  command ssh "$@" || ssh_ret=$?
+  # restore tty line-discipline state (warn if not successful)
+  if [ -n "$_sw_old_stty" ]; then
+    stty "$_sw_old_stty" 2>/dev/null || \
+      j_msg "-${warn}" -p "failed to restore tty state; status [$?]"
+  else
+    j_msg "-${warn}" -p "cannot restore tty state because none was saved"
+  fi
+  # guard against premature exit from ssh to app using mouse controls (e.g. tmux)
+  # (warn if not successful)
+  terminal_mouse_off || j_msg "-${warn}" -p "terminal_mouse_off failed; status [$?]"
+  # unset localized variables
+  unset -v _sw_old_stty
+  # return collected result
+  return "$ssh_ret"
+}
+# @usage ssh_wrapper <ssh-arguments...>
+# @args $@: arguments passed unchanged to ssh
+# @ret ssh exit status: remote command/session status, or 255 on ssh error
+# @deps ssh stty terminal_mouse_off j_msg
+# @vars ssh_ret
+# @rule restores saved tty state after ssh and disables terminal mouse reporting
+# @note terminal-recovery failures warn but do not replace the saved ssh result
+# maintainer note: upgraded from ssh "$1" to ssh "$@" for full ssh functionality
+
 swr() # (POSIX) use pur() to check first; then ssh when netcat indicates port is ready
 { swr_ret=0; [ $# -lt 1 ] && return 1 ;   # guard; reject null target
   _swr_target="$1"; _swr_max_retries=10; _swr_count=0; _ssh_port="${2:-22}";  # default to port 22 but allow another to be specified as $2
@@ -4708,11 +4709,13 @@ swr() # (POSIX) use pur() to check first; then ssh when netcat indicates port is
       _swr_color="${BRon}"
     fi
       printf "checking port %s -- try: [%b] " "$_ssh_port" "${_swr_color}${_swr_count}${Boff}";
-    _swr_count=$((_swr_count + 1)); sleep 1; done;
+    _swr_count=$((_swr_count + 1)); sleep 1
+  done
+  milli_sleep 100   # wait just a teensy bit
   # test nc one last time to ensure the loop exited for success, not timeout
   if nc -z -w 1 "$_swr_target" "$_ssh_port" 2>/dev/null; then
     RCP; EL; j_msg -${notice} "${BGon}OK${Boff} - $_swr_target sshd is ready"
-    ssh -p "$_ssh_port" "$_swr_target"
+    ssh_wrapper -p "$_ssh_port" "$_swr_target"
     swr_ret=0
   else
     RCP; EL; j_msg -${err} "sshd port $_ssh_port on $_swr_target not responding after $_swr_max_retries tries"
