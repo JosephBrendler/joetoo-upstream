@@ -117,6 +117,7 @@ build_slow_piggy_list() {
         github.com
         github.githubassets.com
         raw.github.com
+        raw.githubusercontent.com
     )
     # append google sites
     slow_piggies+=(
