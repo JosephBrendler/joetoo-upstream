@@ -1260,16 +1260,11 @@ terminal_mouse_off()   # (POSIX) disable terminal mouse reporting
 # to-do: relocate this with swr
 ssh_wrapper()  # (POSIX) wrapper for ssh providing terminal-sanity hardening
 { ssh_ret=0   #.......# return exit status for function
-  # guard - one arg required
-  [ $# -eq 1 ] || { j_msg "-${err}" -p "ssh target required"; return 1; }
-  # guard - _sw_host must be reachable on ssh port (22)
-  if !  nc -z -w 2 "$1" 22 >/dev/null 2>&1; then
-    j_msg "-${err}" -p "ssh target [$1] not reachable"; return 2; fi
-  _sw_host="$1"
   # save terminal state (assign null if failed; for safety under set -e)
   _sw_old_stty=$(stty -g 2>/dev/null) || _sw_old_stty=""
   # connect or collect exit status for the function if not successful
-  ssh "$_sw_host" || ssh_ret=$?
+  # (use command to bypass any ssh shell function and avoid wrapper recursion)
+  command ssh "$@" || ssh_ret=$?
   # restore tty line-discipline state (warn if not successful)
   if [ -n "$_sw_old_stty" ]; then
     stty "$_sw_old_stty" 2>/dev/null || \
@@ -1281,18 +1276,18 @@ ssh_wrapper()  # (POSIX) wrapper for ssh providing terminal-sanity hardening
   # (warn if not successful)
   terminal_mouse_off || j_msg "-${warn}" -p "terminal_mouse_off failed; status [$?]"
   # unset localized variables
-  unset -v _sw_host _sw_old_stty
+  unset -v _sw_old_stty
   # return collected result
   return "$ssh_ret"
 }
-# @usage ssh_wrapper <host>
-# @args $1: SSH target hostname or address
-# @ret 0 on successful ssh exit; 1 if target arg missing; 2 if port 22 unreachable
-# @ret otherwise returns ssh exit status
-# @deps nc ssh stty terminal_mouse_off j_msg
+# @usage ssh_wrapper <ssh-arguments...>
+# @args $@: arguments passed unchanged to ssh
+# @ret ssh exit status: remote command/session status, or 255 on ssh error
+# @deps ssh stty terminal_mouse_off j_msg
 # @vars ssh_ret
 # @rule restores saved tty state after ssh and disables terminal mouse reporting
 # @note terminal-recovery failures warn but do not replace the saved ssh result
+# maintainer note: upgraded from ssh "$1" to ssh "$@" for full ssh functionality
 
 #---[ Simple Cursor State Control ]-----------------------------------
 SCP() # (ANSI) save the current cursor position
