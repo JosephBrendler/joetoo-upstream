@@ -37,7 +37,7 @@ FALSE=""  # will evaluate to be logically false in a boolean operation
 if ! [ "${JOETOO_FORCE_RELOAD:-${FALSE}}" ]; then
   # primary guard against recursive or excessive sourcing of this header file (use function check)
   # use command -v to check for function defined by header (more portable/faster POSIX than using type)
-  if command -v emit &>/dev/null; then return; fi
+  if command -v emit >/dev/null 2>&1; then return; fi
   # secondary guard against recursive or excessive sourcing of this header file
   [ "$JOETOO_ENVIRONMENT_ALREADY_SOURCED" ] && return
 fi
@@ -284,7 +284,7 @@ is_utf8_terminal()   # (POSIX) return 0 if terminal can print utf-8, 1 otherwise
   # tier 3(c) if in screen (STY), look for sshd in transport process tree ancestry
   # detect whether psmisc pstree is available
   HAVE_PSMISC_PSTREE="$FALSE"
-  /usr/bin/pstree -s $$ &>/dev/null && HAVE_PSMISC_PSTREE="$TRUE"
+  /usr/bin/pstree -s $$ >/dev/null 2>&1 && HAVE_PSMISC_PSTREE="$TRUE"
   if [ "$STY" ]; then
     _iut_be_pid=$(printf "%s" "$STY" | cut -d. -f1) # pid of back end (first part of e.g. 1459228.tty1.yorsqui)
     # find backend PTY (/dev/pts/ or /dev/tty entries in the backend's file descriptors in /proc/$PID/fd/)
@@ -811,6 +811,26 @@ NUL='\000'            # only for matching  (do not precook, and do not try to pr
 #   relying on it (\x1b) makes the script less portable
 CSI="${ESC}["
 
+# The general ANSI Control Sequence framework is --
+#   CSI [Marker] [Parameters] [Intermediate Bytes] [Final Character]
+# "Parameter" format is ascii digits separated by semicolons
+#   (e.g. CSI 10;20H => move cursor to row 10 col 20)
+# "Final Character"  is a single letter or symbol (ASCII 0x40 to 0x7E, like m, h, l, H, c)
+#   (this is the action command telling the terminal what to do with parameters)
+# "Marker" is an optional prefix that can flag the command as a private-use or extension sequence
+#   (outside the base ECMA-48 standard).  Examples --
+# CSI ? ... (Private Modes / Xterm Extensions) - parameter/final_char sequence refer to specialized
+#   hardware or terminal state modes rather than standard layout commands.
+#   (e.g. CSI ? 25 l => hide cursor)
+# CSI > ... (Secondary Device Attributes / Query Requests) - query the terminal for s/w ver, dev type, config
+# CSI = ... (Implementation-specific Hardware / Modifiers Control) - used by specific emulator families
+#   (e.g. SCO ANSI console, Linux console, or specialized Xterm extensions)
+#   to change raw configuration behavior or key modifiers
+#   (e.g. CSI = 3 h => [on older systems] shift from 80 to 132-column video mode)
+#   (note: modern method is CSI ? 3 h)
+# CSI ... (The Standard Base Command) - universally compliant ANSI terminal actions
+#   (e.g. CSI 31;1 m => change text to Bold Red)
+
 #-----[ Select Graphics Rendition on/off ]------------------------------------------
 BOLD="1"         # bold on
 UL="4"           # underline on
@@ -1144,6 +1164,135 @@ vt_init() # (POSIX) Initialize G0/G1 character sets for DEC SI/SO graphics
   #   this is what prepares the terminal for the fast SI/SO switching )
   printf "%b%b" "$ESCoff" "$ESG1"
 }
+
+#---[ DEC Private Terminal functions and definitions ]----------------
+# DEC private terminal modes are stateful terminal-emulator controls expressed
+# as CSI sequences using the private parameter marker '?' (see also CSI= above) --
+#   enable  -- CSI ? <mode> h  (see DECSET below)
+#   disable -- CSI ? <mode> l  (see DECRST below)
+# These were historically defined for DEC terminals and later extended by
+# for xterm-compatible emulators. They control behaviors such as cursor
+# visibility, application-key modes, alternate screen handling, mouse reporting,
+# focus reporting, etc.
+#
+# Because terminal modes persist until explicitly changed, an application that
+# uses them and exits abnormally can leave the terminal in an unexpected state.
+# These helpers below provide precise, surgical control of individual modes
+# without doing a broad terminal reset.
+#
+# The namespace has grown; early DEC hardware-terminal behavior is at low numbers
+#   1      application cursor keys
+#   3      80/132-column behavior
+#   5      reverse video
+#   6      origin mode
+#   7      autowrap
+#   25     cursor visible
+# Later DEC terminals added more; then terminal emulators (e.g. xterm) extended the mechanism
+#   47       alternate screen
+#   1000     mouse button reporting
+#   1002     button-motion mouse tracking
+#   1003     all-motion mouse tracking
+#   1004     focus reporting
+#   1005     UTF-8 mouse encoding
+#   1006     SGR mouse encoding
+#   1015     urxvt mouse encoding
+#   1047     alternate screen variant
+#   1048     save/restore cursor variant
+#   1049     alternate screen + cursor handling
+#   2004     bracketed paste
+# Further, there are actually several different namespaces inside CSI (see CSI= above)
+
+
+DECSET() # (DEC) enable private terminal mode $1
+{ _decset_mode="${1:-}"
+  if isint "$_decset_mode"; then
+    printf '%s' "${CSI}?${_decset_mode}h"
+  else
+    unset -v _decset_mode
+    return 1
+  fi
+  unset -v _decset_mode
+  return 0
+}
+# @usage DECSET <mode>
+# @args $1: DEC private mode number to enable
+# @ret 0 if sequence emitted; 1 if mode is not an integer
+# @deps isint
+# @vars CSI
+# @note emits CSI ? <mode> h
+
+DECRST() # (DEC) disable private terminal mode $1
+{ _decrst_mode="${1:-}"
+  if isint "$_decrst_mode"; then
+    printf '%s' "${CSI}?${_decrst_mode}l"
+  else
+    unset -v _decrst_mode
+    return 1
+  fi
+  unset -v _decrst_mode
+  return 0
+}
+# @usage DECRST <mode>
+# @args $1: DEC private mode number to disable
+# @ret 0 if sequence emitted; 1 if mode is not an integer
+# @deps isint
+# @vars CSI
+# @note emits CSI ? <mode> l
+
+terminal_mouse_off()   # (POSIX) disable terminal mouse reporting
+{
+    DECRST 9    || return 1    # X10 mouse compatibility mode
+    DECRST 1000 || return 1    # VT200/normal mouse tracking
+    DECRST 1001 || return 1    # highlight mouse tracking
+    DECRST 1002 || return 1    # button-event tracking
+    DECRST 1003 || return 1    # any-event tracking
+    DECRST 1005 || return 1    # UTF-8 extended mouse encoding
+    DECRST 1006 || return 1    # SGR extended mouse encoding
+    DECRST 1015 || return 1    # urxvt extended mouse encoding
+    DECRST 1016 || return 1    # SGR pixel-position mouse encoding
+    return 0
+}
+# @usage terminal_mouse_off
+# @ret 0 if all mouse-mode reset sequences emitted; 1 on first failure
+# @deps DECRST
+# @note disables common DEC/xterm mouse tracking and mouse-encoding modes
+
+# to-do: relocate this with swr
+ssh_wrapper()  # (POSIX) wrapper for ssh providing terminal-sanity hardening
+{ ssh_ret=0   #.......# return exit status for function
+  # guard - one arg required
+  [ $# -eq 1 ] || { j_msg "-${err}" -p "ssh target required"; return 1; }
+  # guard - _sw_host must be reachable on ssh port (22)
+  if !  nc -z -w 2 "$1" 22 >/dev/null 2>&1; then
+    j_msg "-${err}" -p "ssh target [$1] not reachable"; return 2; fi
+  _sw_host="$1"
+  # save terminal state (assign null if failed; for safety under set -e)
+  _sw_old_stty=$(stty -g 2>/dev/null) || _sw_old_stty=""
+  # connect or collect exit status for the function if not successful
+  ssh "$_sw_host" || ssh_ret=$?
+  # restore tty line-discipline state (warn if not successful)
+  if [ -n "$_sw_old_stty" ]; then
+    stty "$_sw_old_stty" 2>/dev/null || \
+      j_msg "-${warn}" -p "failed to restore tty state; status [$?]"
+  else
+    j_msg "-${warn}" -p "cannot restore tty state because none was saved"
+  fi
+  # guard against premature exit from ssh to app using mouse controls (e.g. tmux)
+  # (warn if not successful)
+  terminal_mouse_off || j_msg "-${warn}" -p "terminal_mouse_off failed; status [$?]"
+  # unset localized variables
+  unset -v _sw_host _sw_old_stty
+  # return collected result
+  return "$ssh_ret"
+}
+# @usage ssh_wrapper <host>
+# @args $1: SSH target hostname or address
+# @ret 0 on successful ssh exit; 1 if target arg missing; 2 if port 22 unreachable
+# @ret otherwise returns ssh exit status
+# @deps nc ssh stty terminal_mouse_off j_msg
+# @vars ssh_ret
+# @rule restores saved tty state after ssh and disables terminal mouse reporting
+# @note terminal-recovery failures warn but do not replace the saved ssh result
 
 #---[ Simple Cursor State Control ]-----------------------------------
 SCP() # (ANSI) save the current cursor position
