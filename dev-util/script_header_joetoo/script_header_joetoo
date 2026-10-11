@@ -25,8 +25,11 @@
 # pseudo-boolean values for most shells which have none
 TRUE=0    # will evaluate to be logically true in a boolean operation
 FALSE=""  # will evaluate to be logically false in a boolean operation
-  # play with test function:
-  # test() { [ $1 ] && echo "$1 is true" || echo "$1 is false"; }
+  # After sourcing this header, copy/paste from below to play with test functions:
+  # tf_test() { [ $1 ] && echo "$1 is true" || echo "$1 is false"; }
+  # color_tf_test() { [ $1 ] && echo "$1 is [$(status_color "$1")$(TrueFalse "$1")${Boff}]" ||
+  #     echo "$1 is [$(status_color "$1")$(TrueFalse "$1")${Boff}]"; }
+  # VAR=$TRUE; tf_test "$VAR" ;  color_tf_test "$VAR"
 # in comparison, exit status code must be tested with math, not logic
   # play with test function:
   # result=1; [ "$result" ] && echo true || echo false  {status 1 == failure; but this will return "true"}
@@ -389,13 +392,16 @@ UNICODE_DISABLE="$FALSE"  # this can be set manually by a user .conf, to opt out
 
 #-----[ load UI assets ]---------------------------------------------------------------------
 # source the 20260924 compiled UI assets header (no more pre-cooking at runtime)
+# shellcheck source=/usr/sbin/script_header_joetoo_uiassets
 . "${JOETOO_HEADER_DIR%/}/script_header_joetoo_uiassets"
 
 #-----[ load raw hex Unicode/Emojis ]--------------------------------------------------------
 # source the 20260303 refactored script_header_joetoo_unicode
+# shellcheck source=/usr/sbin/script_header_joetoo_unicode
 . "${JOETOO_HEADER_DIR}/script_header_joetoo_unicode"
 
 #-----[ load unicode registries ]------------------------------------------------------------
+# shellcheck source=/usr/sbin/script_header_joetoo_registries
 . "${JOETOO_HEADER_DIR}/script_header_joetoo_registries"
 
 # (use by-name idx_ and bin_ to assign by-severity idx_ and bin_ ) (formerly in _precook_registry)
@@ -1832,103 +1838,131 @@ isipv6() # (POSIX) test if $1 is a valid ipv6 address
   return 0
 }
 
-isipv6_debug() # (POSIX) test if $1 is a valid ipv6 address
-{ # note j_msg is not defined until far below, but proxy is defined early, just in case this runs before full parsing
-  _i6_ip=$1; _i6_SINGLE_DOUBLE=$FALSE # pseudo-boolean, only ever =$TRUE or =$FALSE, where TRUE=0; FALSE="" is global
-  # handle optional Link-Local Zone IDs (strip %eth0, etc.)
-  case "$_i6_ip" in *%*) _i6_ip=${_i6_ip%%%*} ; j_msg "-${debug}" -p "trimmed %iface" ;; esac
-  # handle optional prefix lenghts (strip /64, etc.)
-  case "$_i6_ip" in */*) _i6_ip=${_i6_ip%%/*} ; j_msg "-${debug}" -p "trimmed /prefix_len" ;; esac
-  # only Hex digits and colons allowed
-  case "$_i6_ip" in *[!0-9a-fA-F:]*) j_msg "-${debug}" -p "only hex and : allowed"; return 1 ;; esac
-  # only 1 double-colon allowed, never 3+
-  case "$_i6_ip" in *::*::*|*:::*) j_msg "-${debug}" -p "only 1 :: allowed"; return 1 ;; esac
-  case "$_i6_ip" in
-    # allow and account for a one double-colon (e.g. ::1, fd62:6262:6262::, fd62:6262:6262::17)
-    ::*|*::|*::*)
-      _i6_SINGLE_DOUBLE=$TRUE;
-      j_msg "-${debug}" -p "allowed double and set _i6_SINGLE_DOUBLE [$(TrueFalse $_i6_SINGLE_DOUBLE)]" ;;
-    # reject - must be "naked solo" leading/trailing colon to get here
-    :*|*:) j_msg "-${debug}" -p "rejected naked solo leading/trailing colon"; return 1 ;;
-  esac
-  case "$_i6_ip" in
-    *:*:*:*:*:*:*:*:*:*)
-      j_msg "-${debug}" -p "rejected 9+ :" ;
-      return 1 ;;                      # 9 or more colons -> invalid
-    *:*:*:*:*:*:*:*:*)
-      # only allowed form of 8 colons when there is one leading/trailing double-colon (special 0-compression)
-      case "$_i6_ip" in
-        ::*|*::) j_msg "-${debug}" -p "allowed 8 : leading/trailing SINGLE_DOUBLE" ;;
-        *) j_msg "-${debug}" -p "rejected 8 : - not leading/trailing SINGLE_DOUBLE" ; return 1 ;;
-      esac ;;
-    *:*:*:*:*:*:*:*)  _i6_colons=7 ;;
-    *:*:*:*:*:*:*)    _i6_colons=6 ;;
-    *:*:*:*:*:*)      _i6_colons=5 ;;
-    *:*:*:*:*)        _i6_colons=4 ;;
-    *:*:*:*)          _i6_colons=3 ;;
-    *:*:*)            _i6_colons=2 ;;
-    *:*)              _i6_colons=1 ;;
-    *)                 return 1 ;; # 0 colons -> invalid
-  esac
-  j_msg "-${debug}" -p "_i6_colons: [$_i6_colons]"
-  # enforce other rules for compressed addresses
-  if [ "$_i6_SINGLE_DOUBLE" ]; then
-    # compressed - other than above, must have fewer than 7 colons total unless at absolute outer bounds
-    case "$_i6_ip" in
-      # Allowed only if the compression sits at the absolute outer bounds
-      ::*|*::) j_msg "-${debug}" -p " *:: or ::* allowed after colon-count check" ;;
-      # SINGLE_DOUBLE not one of above must be *::* (inner)
-      *) if [ "$_i6_colons" -ge 7 ] ; then
-           j_msg "-${debug}" -p "rejected 7+ : - not *:: or ::*"; return 1
-          else
-            j_msg "-${debug}" -p "allowed : *::* (inner SINGLE_DOUBLE) with < 7 :"
-          fi
-        ;;
-    esac
-  else
-    # not compressed - must have exactly 7 colons
-    if [ "$_i6_colons" -ne 7 ] ; then j_msg "-${debug}" -p "non-compressed w lt 7 :"; return 1; fi
-  fi
-  # remove allowed and checked-above potential leading or trailing : from _i6_ip and then
-  # split hextets safely using POSIX parameter expansion
-  # note: for compressed addresses possibly as short as ::1,
-  #  rem can repeatedly become the last hextet as early as the second assignment
-  #  and _i6_h4+ can "incorrectly" also contain this redundant value
-  # (this is ok because the goal is not to rebuild the address but to check
-  #   if it is valid here we may redundantly validate the last hextet
-  #   but that is safer and probably more efficient than using a loop
-  #   with eval to replace this assignment block)
-  # strip leading colons
-  _i6_tmp="$_i6_ip"
-  while [ "${_i6_tmp%"${_i6_tmp#?}"}" = ":" ]; do _i6_tmp=${_i6_tmp#:}; done
-  # strip trailing colons
-  while [ "${_i6_tmp#"${_i6_tmp%?}"}" = ":" ]; do _i6_tmp=${_i6_tmp%:}; done
-  j_msg "-${debug}" -p "after stripping leading/trailing :s _i6_tmp: [$_i6_tmp]"
-  _i6_h1=${_i6_tmp%%:*}   ; _i6_rem=${_i6_tmp#*:}
-  _i6_h2=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
-  _i6_h3=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
-  _i6_h4=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
-  _i6_h5=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
-  _i6_h6=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
-  _i6_h7=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
-  _i6_h8=${_i6_rem}
-  # validate every hextet
-  for _i6_hextet in "$_i6_h1" "$_i6_h2" "$_i6_h3" "$_i6_h4" "$_i6_h5" "$_i6_h6" "$_i6_h7" "$_i6_h8"; do
-    # reject any hextet 5 or more characters long
-    if [ "${#_i6_hextet}" -gt 4 ]; then j_msg "-${debug}" -p "5+ _i6_hextet [$_i6_hextet]"; return 1 ; fi
-    # reject if not hex integer (prepend 0x0 for ishexint compatibility, even with "")
-    if ! ishexint "0x0$_i6_hextet" ; then j_msg "-${debug}" -p "non-hexint [$_i6_hextet]"; return 1 ; fi
-    j_msg "-${debug}" -p "accepted hexint [$_i6_hextet]"
-    # retained below as instructive, but commented out as redundant to above (no 4-char hex can be bigger than ffff)
-    # reject if greater than 0xffff or negative (prepend 0 to keep "" from failing)
-    #_i6_dec=$(h2d "0$_i6_hextet")
-    #if [ "$_i6_dec" -gt 65535 ] ; then j_msg "-${debug}" -p "too big"; return 1; fi
+_strip_0()  # (POSIX) strip "0" chars from the left
+{ s0_ret=0
+  isint "$1" || return 1
+  # guard - dont convert "0" to ""
+  [ "$1" = "0" ] && { printf '%s\n' "0"; return 0 ; }
+  _num="$1"
+  # if trying to strip 0 from prefix of _num produces _num, then there is no 0 to strip
+  while [ "${_num#0}" != "$_num" ] && [ "$_num" != "0" ]; do
+    _num="${_num#0}"
   done
-  j_msg "-${debug}" -p "isipv6 complete $_i6_ip is ipv6; exiting status 0"
-  unset -v _i6_ip _i6_SINGLE_DOUBLE _i6_colons _i6_hextet _i6_dec _i6_tmp
-  unset -v _i6_h1 _i6_h2 _i6_h3 _i6_h4 _i6_h5 _i6_h6 _i6_h7 _i6_h8
-  return 0
+  printf '%s\n' "$_num" || s0_ret=3
+  unset -v _num
+  return "$s0_ret"
 }
+# @usage _strip_0 <string>
+# @args string: the numeric or text string containing potential leading zeros
+# @ret 0: success (printed stripped string or original "0")
+# @ret 1: failure (input was not a valid integer via isint)
+# @ret 3: failure (printf error during evaluation)
+# @deps isint()
+# @rule guards against turning a lone "0" into an empty string ""
+# @note Uses a POSIX-compliant while loop pattern match to strip leading zeros
+# @append one by one without relying on non-standard bash extglob utilities
+# @note this is a helper function not really intended to be called by users
+
+is_valid_timestamp()   # (POSIX) validate string as timestamp shape and valid date
+{ iv_ret=0
+  # shape check and date-part extraction using POSIX case matching
+  case "$1" in
+    # pattern 1: YYYYMMDD-HH:MM:SS
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+      _yr=$(printf '%s' "$1" | cut -c1-4)
+      _mo=$(printf '%s' "$1" | cut -c5-6)
+      _da=$(printf '%s' "$1" | cut -c7-8)
+      _hr=$(printf '%s' "$1" | cut -c10-11)
+      _mi=$(printf '%s' "$1" | cut -c13-14)
+      _se=$(printf '%s' "$1" | cut -c16-17)
+      ;;
+    # pattern 2: YYYY-MM-DD HH:MM:SS
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+      _yr=$(printf '%s' "$1" | cut -c1-4)
+      _mo=$(printf '%s' "$1" | cut -c6-7)
+      _da=$(printf '%s' "$1" | cut -c9-10)
+      _hr=$(printf '%s' "$1" | cut -c12-13)
+      _mi=$(printf '%s' "$1" | cut -c15-16)
+      _se=$(printf '%s' "$1" | cut -c18-19)
+      ;;
+    *)
+      iv_ret=1 ;; # does not match either layout shape (bit 0)
+  esac
+  # short-circuit immediately if the structural layout check failed
+  [ "$iv_ret" -ne 0 ] && return "$iv_ret"
+
+  # Explicitly capture statuses to update iv_ret bits, using '0' as safe math fallbacks on error
+  # the main purpose of stripping leading "0" chars is to avoid octal interpretation which
+  # would mess sup the math _strip_0 above is a POSIX alternative to forcing base 10 with Bash 10#
+  if _yr_out=$(_strip_0 "$_yr") && [ -n "$_yr_out" ]; then
+    _yr=$_yr_out; else _yr=0; iv_ret=$(( iv_ret | 1<<1 )) ; fi  # bit 1 - bad year
+  if _mo_out=$(_strip_0 "$_mo") && [ -n "$_mo_out" ]; then
+    _mo=$_mo_out; else _mo=0; iv_ret=$(( iv_ret | 1<<2 )) ; fi  # bit 2 - bad month
+  if _da_out=$(_strip_0 "$_da") && [ -n "$_da_out" ]; then
+    _da=$_da_out; else _da=0; iv_ret=$(( iv_ret | 1<<3 )) ; fi  # bit 3 - bad day
+  if _hr_out=$(_strip_0 "$_hr") && [ -n "$_hr_out" ]; then
+    _hr=$_hr_out; else _hr=0; iv_ret=$(( iv_ret | 1<<4 )) ; fi  # bit 4 - bad hour
+  if _mi_out=$(_strip_0 "$_mi") && [ -n "$_mi_out" ]; then
+    _mi=$_mi_out; else _mi=0; iv_ret=$(( iv_ret | 1<<5 )) ; fi  # bit 5 - bad minute
+  if _se_out=$(_strip_0 "$_se") && [ -n "$_se_out" ]; then
+    _se=$_se_out; else _se=0; iv_ret=$(( iv_ret | 1<<6 )) ; fi  # bit 6 - bad second
+  unset -v _yr_out _mo_out _da_out _hr_out _mi_out _se_out
+
+  # validate basic boundaries ( bit 7 = value out of bounds)
+  # on fail, set BOTH bit 7 = out of bounds AND bit 1-6 as appropriate
+  if [ "$_yr" -lt 1 ]; then   #....................# year must be > 0 (no yeaer zero)
+    iv_ret=$(( iv_ret | 1<<7 )); iv_ret=$(( iv_ret | 1<<1 )); fi   # bits 7, 1 - year
+  if [ "$_mo" -lt 1 ] || [ "$_mo" -gt 12 ]; then   # month must be 1 - 12 (no month zero)
+    iv_ret=$(( iv_ret | 1<<7 )); iv_ret=$(( iv_ret | 1<<2 )); fi   # bits 7, 2 - month
+  if [ "$_hr" -gt 23 ]; then  #....................# hour must be 0 - 23
+    iv_ret=$(( iv_ret | 1<<7 )); iv_ret=$(( iv_ret | 1<<4 )); fi   # bits 7, 4 - hour
+  if [ "$_mi" -gt 59 ]; then  #....................# minute must be 0 - 59
+    iv_ret=$(( iv_ret | 1<<7 )); iv_ret=$(( iv_ret | 1<<5 )); fi   # bits 7, 5 - minute
+  if [ "$_se" -gt 60 ]; then  #....................# second must be 0 - 60 (**)
+    iv_ret=$(( iv_ret | 1<<7 )); iv_ret=$(( iv_ret | 1<<6 )); fi   # bits 7, 6 - second
+  # Note: (**) second allows 60 to accomodate occasional leap second  # strip leading zeros using pure POSIX parameter expansion
+
+  # determine max days for the specific month
+  # (calculate if the month (bit 2) and year (bit 1) are so far valid (1<<1 | 1<<2) masks bit 1, 2
+  #  equivalent to 0b00000110 so bitwise and with iv ret is non-zero if either = 1)
+  if [ $(( iv_ret & ( 1<<1 | 1<<2 ) )) -eq 0 ]; then
+    case "$_mo" in
+      4|6|9|11) _max_days=30 ;;   # "30 days has Septembr, April, June, and November"
+      2)
+        # leap year rules: divisible by 4, not 100, unless divisible by 400
+        if [ $((_yr % 4)) -eq 0 ] && { [ $((_yr % 100)) -ne 0 ] || [ $((_yr % 400)) -eq 0 ]; }; then
+          _max_days=29
+        else
+          _max_days=28
+        fi
+        ;;
+      *) _max_days=31 ;;   #......# "all the rest have 31, save February ..."
+    esac
+    # final day validation
+    # on fail, set BOTH bit 7 = out of bounds AND bit 3 - day
+    if [ "$_da" -lt 1 ] || [ "$_da" -gt "$_max_days" ] ; then
+      iv_ret=$(( iv_ret | 1<<7 )); iv_ret=$(( iv_ret | 1<<3 )); fi   # bits 7, 3 - day
+  fi
+
+  unset -v _yr _mo _da _hr _mi _se _max_days
+  return "$iv_ret"
+}
+# @usage is_valid_timestamp "timestamp_string"
+# @args $1: A date-time string formatted as either "YYYYMMDD-HH:MM:SS" or
+# @append "YYYY-MM-DD HH:MM:SS"
+# @vars iv_ret: Cumulative integer modified to contain bitwise error flags
+# @deps isint(), left_most(), cut, printf
+# @ret 0: Success (timestamp matches shape and constitutes a valid real date)
+# @ret >0: Failure (composite bitwise error flag integer)
+# @note Bit 0 flags structural layout shape mismatches
+# @note Bits 2-7 flag numeric string-stripping format errors per field
+# @note Bits 8-11 flag clock-modulo or chronological boundary exceptions
+# @note Bit 12 flags calendar-modulo month-day count exceptions
+# @rule Validates layout structures against predefined case glubs before math
+# @rule Converts leading zeros cleanly using an internal string-stripping loop
+# @rule Substitutes math fallbacks safely on string-to-integer conversion errors
+# @rule Calculates standard Gregorian leap years for true February day bounds
+# @rule Permits 60 seconds strictly to accommodate leap second validation
 
 
 checkroot() # (POSIX) run as root, of course (${var:-0} means default to 0)
@@ -4419,7 +4453,7 @@ progress_inline() # (POSIX) show progress of silent process on next line $1=step
 # @note uses "set --" to build complex printf commands without line continuations
 # @note automatically emits newline upon reaching 100% to preserve the bar
 
-millis2time()   # (POSIX) convert integer ms to time format
+millis2time()   # (POSIX) convert integer milliseconds to time format
 { mt_ret=0; _mt_ms=${1:-0}
   # guard - input must be a non-negative integer
   if ! isint "$_mt_ms" || [ "$_mt_ms" -lt 0 ]; then
@@ -4448,9 +4482,32 @@ millis2time()   # (POSIX) convert integer ms to time format
 # @usage millis2time [MILLISECONDS]
 # @args $1 non-negative integer milliseconds; defaults to 0
 # @ret emits elapsed time as DD:HH:MM:SS:mmm; returns 0 on success
-# @rule hours, minutes, seconds, and milliseconds are modulo clock fields
-# @note days are unbounded; other fields are clock-modulo values;
-# @append output represents elapsed duration, not wall time
+# @note hours, minutes, seconds, and milliseconds are modulo clock fields;
+# @cont days are unbounded (printf "%02d" prints a minimum of 2 digits)
+# @cont (e.g. 00:01:30:57)); output represents elapsed duration, not wall time
+
+secs2time()   # (POSIX) convert integer seconds to dd:hh:mm:ss time format
+{ st_ret=0; _st_sec=${1:-0};
+  if ! isint "$_st_sec" || [ "$_st_sec" -lt 0 ]; then
+    j_msg "-${err}" -p "secs2time requires non-negative integer seconds";
+    unset -v _st_sec;
+    return 1; fi;
+  _st_ss=$((  _st_sec % 60  )) || st_ret=$(( st_ret | 2 ));
+  _st_min=$(( _st_sec / 60  )) || st_ret=$(( st_ret | 4 ));
+  _st_mm=$((  _st_min % 60  )) || st_ret=$(( st_ret | 8 ));
+  _st_hrs=$(( _st_min / 60  )) || st_ret=$(( st_ret | 16 ));
+  _st_hh=$((  _st_hrs % 24  )) || st_ret=$(( st_ret | 32 ));
+  _st_dd=$((  _st_hrs / 24  )) || st_ret=$(( st_ret | 64 ));
+  printf "%02d:%02d:%02d:%02d\n" "$_st_dd" "$_st_hh" "$_st_mm" "$_st_ss" || st_ret=1;
+  unset -v _st_sec _st_ss _st_min _st_mm _st_hrs _st_hh _st_dd;
+  return $st_ret
+}
+# @usage secs2time [SECONDS]
+# @args $1 non-negative integer seconds; defaults to 0
+# @ret emits elapsed time as DD:HH:MM:SS; returns 0 on success
+# @note hours, minutes, and seconds are modulo clock fields
+# @cont days are unbounded (printf "%02d" prints a minimum of 2 digits)
+# @cont (e.g. 00:01:30:57)); output represents elapsed duration, not wall time
 
 sh_countdown() # (POSIX) count-down seconds (arg $1)
 { shc_ret=0; _shc_rem_time="${1:-30}"  # guard; default to 30 sec. if no arg given
@@ -6955,6 +7012,7 @@ summarize_header() # (POSIX) list functions and notes in installed headers
 
 # load the compatibility header (wrappers to redirect calls to
 #    legacy functions to new capability
+# shellcheck source=/usr/sbin/script_header_joetoo_compat
 . ${JOETOO_HEADER_DIR%/}/script_header_joetoo_compat
 
  # if here, sourcing is complete

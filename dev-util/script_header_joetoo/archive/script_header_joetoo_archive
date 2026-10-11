@@ -4676,3 +4676,102 @@ fix_root_file() # (POSIX) create or repair a root-owned file
 # @append create parent dir if asked; set safe permissions, remove immutability if needed
 # @note safe alternative to using validate_file which calls validate_dir
 # @append wherein validate_dir wants to chown the entire dir to user
+
+isipv6_debug() # (POSIX) test if $1 is a valid ipv6 address
+{ # note j_msg is not defined until far below, but proxy is defined early, just in case this runs before full parsing
+  _i6_ip=$1; _i6_SINGLE_DOUBLE=$FALSE # pseudo-boolean, only ever =$TRUE or =$FALSE, where TRUE=0; FALSE="" is global
+  # handle optional Link-Local Zone IDs (strip %eth0, etc.)
+  case "$_i6_ip" in *%*) _i6_ip=${_i6_ip%%%*} ; j_msg "-${debug}" -p "trimmed %iface" ;; esac
+  # handle optional prefix lenghts (strip /64, etc.)
+  case "$_i6_ip" in */*) _i6_ip=${_i6_ip%%/*} ; j_msg "-${debug}" -p "trimmed /prefix_len" ;; esac
+  # only Hex digits and colons allowed
+  case "$_i6_ip" in *[!0-9a-fA-F:]*) j_msg "-${debug}" -p "only hex and : allowed"; return 1 ;; esac
+  # only 1 double-colon allowed, never 3+
+  case "$_i6_ip" in *::*::*|*:::*) j_msg "-${debug}" -p "only 1 :: allowed"; return 1 ;; esac
+  case "$_i6_ip" in
+    # allow and account for a one double-colon (e.g. ::1, fd62:6262:6262::, fd62:6262:6262::17)
+    ::*|*::|*::*)
+      _i6_SINGLE_DOUBLE=$TRUE;
+      j_msg "-${debug}" -p "allowed double and set _i6_SINGLE_DOUBLE [$(TrueFalse $_i6_SINGLE_DOUBLE)]" ;;
+    # reject - must be "naked solo" leading/trailing colon to get here
+    :*|*:) j_msg "-${debug}" -p "rejected naked solo leading/trailing colon"; return 1 ;;
+  esac
+  case "$_i6_ip" in
+    *:*:*:*:*:*:*:*:*:*)
+      j_msg "-${debug}" -p "rejected 9+ :" ;
+      return 1 ;;                      # 9 or more colons -> invalid
+    *:*:*:*:*:*:*:*:*)
+      # only allowed form of 8 colons when there is one leading/trailing double-colon (special 0-compression)
+      case "$_i6_ip" in
+        ::*|*::) j_msg "-${debug}" -p "allowed 8 : leading/trailing SINGLE_DOUBLE" ;;
+        *) j_msg "-${debug}" -p "rejected 8 : - not leading/trailing SINGLE_DOUBLE" ; return 1 ;;
+      esac ;;
+    *:*:*:*:*:*:*:*)  _i6_colons=7 ;;
+    *:*:*:*:*:*:*)    _i6_colons=6 ;;
+    *:*:*:*:*:*)      _i6_colons=5 ;;
+    *:*:*:*:*)        _i6_colons=4 ;;
+    *:*:*:*)          _i6_colons=3 ;;
+    *:*:*)            _i6_colons=2 ;;
+    *:*)              _i6_colons=1 ;;
+    *)                 return 1 ;; # 0 colons -> invalid
+  esac
+  j_msg "-${debug}" -p "_i6_colons: [$_i6_colons]"
+  # enforce other rules for compressed addresses
+  if [ "$_i6_SINGLE_DOUBLE" ]; then
+    # compressed - other than above, must have fewer than 7 colons total unless at absolute outer bounds
+    case "$_i6_ip" in
+      # Allowed only if the compression sits at the absolute outer bounds
+      ::*|*::) j_msg "-${debug}" -p " *:: or ::* allowed after colon-count check" ;;
+      # SINGLE_DOUBLE not one of above must be *::* (inner)
+      *) if [ "$_i6_colons" -ge 7 ] ; then
+           j_msg "-${debug}" -p "rejected 7+ : - not *:: or ::*"; return 1
+          else
+            j_msg "-${debug}" -p "allowed : *::* (inner SINGLE_DOUBLE) with < 7 :"
+          fi
+        ;;
+    esac
+  else
+    # not compressed - must have exactly 7 colons
+    if [ "$_i6_colons" -ne 7 ] ; then j_msg "-${debug}" -p "non-compressed w lt 7 :"; return 1; fi
+  fi
+  # remove allowed and checked-above potential leading or trailing : from _i6_ip and then
+  # split hextets safely using POSIX parameter expansion
+  # note: for compressed addresses possibly as short as ::1,
+  #  rem can repeatedly become the last hextet as early as the second assignment
+  #  and _i6_h4+ can "incorrectly" also contain this redundant value
+  # (this is ok because the goal is not to rebuild the address but to check
+  #   if it is valid here we may redundantly validate the last hextet
+  #   but that is safer and probably more efficient than using a loop
+  #   with eval to replace this assignment block)
+  # strip leading colons
+  _i6_tmp="$_i6_ip"
+  while [ "${_i6_tmp%"${_i6_tmp#?}"}" = ":" ]; do _i6_tmp=${_i6_tmp#:}; done
+  # strip trailing colons
+  while [ "${_i6_tmp#"${_i6_tmp%?}"}" = ":" ]; do _i6_tmp=${_i6_tmp%:}; done
+  j_msg "-${debug}" -p "after stripping leading/trailing :s _i6_tmp: [$_i6_tmp]"
+  _i6_h1=${_i6_tmp%%:*}   ; _i6_rem=${_i6_tmp#*:}
+  _i6_h2=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
+  _i6_h3=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
+  _i6_h4=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
+  _i6_h5=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
+  _i6_h6=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
+  _i6_h7=${_i6_rem%%:*}  ; _i6_rem=${_i6_rem#*:}
+  _i6_h8=${_i6_rem}
+  # validate every hextet
+  for _i6_hextet in "$_i6_h1" "$_i6_h2" "$_i6_h3" "$_i6_h4" "$_i6_h5" "$_i6_h6" "$_i6_h7" "$_i6_h8"; do
+    # reject any hextet 5 or more characters long
+    if [ "${#_i6_hextet}" -gt 4 ]; then j_msg "-${debug}" -p "5+ _i6_hextet [$_i6_hextet]"; return 1 ; fi
+    # reject if not hex integer (prepend 0x0 for ishexint compatibility, even with "")
+    if ! ishexint "0x0$_i6_hextet" ; then j_msg "-${debug}" -p "non-hexint [$_i6_hextet]"; return 1 ; fi
+    j_msg "-${debug}" -p "accepted hexint [$_i6_hextet]"
+    # retained below as instructive, but commented out as redundant to above (no 4-char hex can be bigger than ffff)
+    # reject if greater than 0xffff or negative (prepend 0 to keep "" from failing)
+    #_i6_dec=$(h2d "0$_i6_hextet")
+    #if [ "$_i6_dec" -gt 65535 ] ; then j_msg "-${debug}" -p "too big"; return 1; fi
+  done
+  j_msg "-${debug}" -p "isipv6 complete $_i6_ip is ipv6; exiting status 0"
+  unset -v _i6_ip _i6_SINGLE_DOUBLE _i6_colons _i6_hextet _i6_dec _i6_tmp
+  unset -v _i6_h1 _i6_h2 _i6_h3 _i6_h4 _i6_h5 _i6_h6 _i6_h7 _i6_h8
+  return 0
+}
+
