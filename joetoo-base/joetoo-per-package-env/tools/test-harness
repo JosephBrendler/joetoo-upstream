@@ -1,19 +1,1222 @@
 #!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# rigorously test whether packages in package.env actually fail to build with distcc
+# test-harness - rigorously test whether packages in package.env actually fail to build with distcc
+#
+# 20261011 - moved to tools/test-harness-common-functions
+# dump_fileset()
+# discover_and_validate_ts()
+# normalize_timestamp()
+# read_status()
+# dump_status()
+# 20261011 - moved to script_header_joetoo
+# secs2time()
+# is_valid_timestamp
+
+JOETOO_HEADER_DIR="/usr/sbin"
+# shellcheck source=/usr/sbin/script_header_joetoo
+source /usr/sbin/script_header_joetoo
+
+development_dir="/home/joe/joetoo-upstream/joetoo-base/joetoo-per-package-env/tools"
+# shellcheck source=/home/joe/joetoo-upstream/joetoo-base/joetoo-per-package-env/tools/test-harness-common-functions
+source "${development_dir%/}/test-harness-common-functions"
+
+PN=${0##*/}
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
+
+#----[ variables ]-------------------------------------------------------------------------------\
+declare -A outcome_counts   # associative array indexed on outcome names, to hold its # pkgs in the summary rollup
+declare -A outcome_color
+outcome_counts=()
+outcome_color=()
+
+# terminal outcome colors
+outcome_color[succeeded]="$BGon"
+outcome_color[failed]="$BRon"
+outcome_color[unvalidated]="$BOon"
+outcome_color[excepted]="$BWon"
+outcome_color[blocked]="$BYon"
+# transient outcome colors
+outcome_color[retry]="$BMon"
+outcome_color[prepared]="$BAon"
+
+declare -a args   #......# emerge command args
+declare -a emerge_env   ## emerge environment variable array
+
+declare -a pkglist   #...# list of packages in package.env that have nodist_features.conf
+declare -a succeeded   #.# list of packages successfully compiled with evidence of distcc help confirmed
+declare -a failed   #....# list of packages for which emerge failed with distcc forced
+declare -a unvalidated   # list of packages that emerge successfully but with no evidence of distcc help
+declare -a excepted   #..# list of packages explicitly chosen (policy) not to distribute (gcc, kernel, etc)
+declare -a blocked   #...# list of packages that failed in phase 2 w/ --with-bdeps=y
+
+declare -a retry   #.....# transient list of packages that failed for --nodeps and need retry w/ --with-bdeps=y
+declare -a prepared   #..# transient list of packages that succeeded w/ --with-bdeps=y and cam be retried in phase 3
+
+# Note:
+# excepted[] array = authoritative policy list of packages that should always enforce nodist_features.conf;
+#    never waste time testing them
+# excepted_file = only the subset relevant to this run, for debug, cumulative and monitor count
+# The script will warn if there is something in excepted but not in package.env with nodist_features.conf
+#    those discrepancies should be fixed manually
+
+# set up logging
+LOGGING=$TRUE
+logFile="/var/log/${PN}.log"
+user="root"
+loglevel="$debug"
+
+# set up bool for INTERACTIVE mode (default on)
+# let cmdline turn this on with -I and of with -N (matching joetoolkit default cli)
+INTERACTIVE=$TRUE
+
+# set up bool to record test run completion
+COMPLETE=$FALSE
+
+# initialize args and emerge_env for build_cmd
+args=()
+emerge_env=()
+# initialize authoritative pkglist for this run and terminal outcome arrays
+pkglist=()
+succeeded=()
+failed=()
+unvalidated=()
+excepted=()
+blocked=()
+# initialize transient outcome arrays
+retry=()
+prepared=()
+
+# consolidate the names of the outcome arrays in one list
+outcome_list=(
+    succeeded
+    failed
+    unvalidated
+    excepted
+    blocked
+    retry
+    prepared
+)
+
+# initialize variables for the "file set" - filenames of persistence files
+tmp_file=""
+status_file=""
+# initialize persistence file filename for pkglist and terminal outcome files
+pkglist_file=""
+succeeded_file=""
+failed_file=""
+unvalidated_file=""
+excepted_file=""
+blocked_file=""
+# initialize persistence file filename for transient outcome files
+retry_file=""
+prepared_file=""
+
+# define package.env file
+package_env_dir="/home/joe/joetoo-upstream/joetoo-base/joetoo-per-package-env"
+package_env_file="${package_env_dir%/}/package.env"
+
+# placeholder for pkg_source, assigned below (default to package.env
+pkg_source="package_env"
+
+# capture the log line-count before starting so as to know where to start looking
+distcc_log="/var/log/distcc/distcc-client.log"
+distcc_log_start=$(wc -l < "$distcc_log")
+
+# populate the excepted array and excepted_file
+# first category: by policy, do not distribute kernel, gcc, or binutils
+# (gcc builds joetoo custom kernels with hardened profile/settings)
+excepted=(
+  sys-kernel/gentoo-kernel
+  sys-devel/binutils
+  cross-armv6j-unknown-linux-gnueabihf/binutils
+  cross-armv7a-unknown-linux-gnueabihf/binutils
+  cross-aarch64-unknown-linux-gnu/binutils
+  sys-devel/gcc
+  cross-armv6j-unknown-linux-gnueabihf/gcc
+  cross-armv7a-unknown-linux-gnueabihf/gcc
+  cross-aarch64-unknown-linux-gnu/gcc
+  llvm-core/llvm
+  llvm-core/llvm-common
+  llvm-core/llvm-runtime
+  llvm-core/clang
+  llvm-runtimes/clang-runtime
+)
+# category 2 - these packages have been tested and are NOT compatible
+# excepted+=( ... )
+#
+# category 3 - these packages have been tested; they fail and they take FOREVER
+# excepted+=( ... )
 #
 
-for pkg in $(awk '{print $1}' /home/joe/myUtilities/joetoo-base/joetoo-per-package-env/package.env); do
-    echo "Testing $pkg"
-    emerge -1av --keep-going=y $pkg \
-        --config-root=/tmp/joetoo-testroot \
-        --root=/tmp/joetoo-testroot \
-        --usepkg=n \
-        --getbinpkg=n \
-        --with-bdeps=y \
-        --jobs=1 \
-        --quiet-build=n \
-        --accept-properties=-interactive \
-        --accept-restrict=-fetch \
-        --env=test-distcc.conf
+# enable -f cmdline option to introduce an alternaitvie source for pkglist via arg -f /path/to/file)
+pkg_file=""
+
+# enable command line to introduce resume capability via arg -r latest|<timestamp>
+resume_target=""
+
+# initialise the glopbal phase variable
+phase=1
+
+# for resume operations, which become identical to normal runs once the recovery is
+# complete and normal program flow begins (this variable enables guard logic to
+# automatically become irrelevant when "we are resuming" logic should no longer apply
+initial_phase=1
+
+# placeholder for the communication about the emerge command
+cmd_msg=""
+
+# placeholder for initial_pkglist_count, assigned below
+initial_pkglist_count=0
+
+# global emerge FEATURES
+emerge_features=""
+
+# global elapsed time of the entire test run (all pkgs, all phases)
+run_elapsed=""
+# global elapsed time (in ddd:hh:mm:ss format) of the entire test run (all pkgs, all phases)
+run_elapsed_fmt=""
+
+# pre-define a dynamic macro for adjusting verbosity
+# (evaluated in script_header_joetoo's _pc_action_verbosity() helper)
+# usage example: _pc_operator="+"; eval "$_pc_adjust_verbosity"
+_pc_adjust_verbosity="verbosity=\$(( verbosity \${_pc_operator} 1 ))"
+
+# varlist to be displayed with show_config
+varlist="PN BUILD"
+varlist+=" bool.INTERACTIVE bool.DEBUG bool.LOGGING logFile"
+varlist+=" pkg_source initial_pkglist_count"
+varlist+=" rlv.package_env_dir rlv.package_env_file"
+varlist+=" rlv.distcc_log distcc_log_start"
+varlist+=" status_file prog_start tmp_file"
+varlist+=" ts"
+varlist+=" pkglist_file"
+varlist+=" succeeded_file failed_file unvalidated_file excepted_file blocked_file"
+varlist+=" retry_file prepared_file"
+varlist+=" pkg_file resume_target"
+varlist+=" BREAK cmd_msg"
+
+#----[ functions ]----------------------------------------------------------------------------------
+usage() {
+   local msg
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    msg="${BRon}usage${Boff}: ${_cmd_color}${PN}${Boff} [-h] [-r l|<timestamp>] [-f /path/to/file]"
+    msg+=" [pkg [pkg ...]]${Boff}"
+    j_msg "-${notice}" -p "$msg"
+
+    j_msg "-${notice}" -m "${BYon}Options --${Boff}"
+
+    msg="  ${_data_color}-f /path/to/file${Boff}${Con} ..........:${Boff} ${BCon}set FILE mode${Boff}"
+    msg+=" (build pkglist from file contents)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}pkg [pkg [pkg ...]${Boff}${Con} ........:${Boff} ${BCon}set FILE mode${Boff}"
+    msg+=" (incl pkg in pkglist)"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-r l[atest]|<timestamp>${Boff}${Con} ...:${Boff} ${BCon}set RESUME mode${Boff}"
+    msg+=" (resume process from persisted state)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-I${Boff}${Con} ........................:${Boff} ${BCon}set INTERACTIVE mode${Boff}"
+    msg+=" (prompt y|n|s before test run)(${BOon}default${Boff})"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-N${Boff}${Con} ........................:${Boff} ${BCon}set NON-INTERACTIVE mode${Boff}"
+    msg+=" (do not prompt for approval) (faster)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-v${Boff}${Con} ........................:${Boff} ${BCon}increase verbosity${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-q${Boff}${Con} ........................:${Boff} ${BCon}decrease verbosity${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-h${Boff}${Con} ........................:${Boff} ${BCon}help${Boff}"
+    msg+=" (show this message)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    j_msg "-${notice}" -m "${BYon}Note --${Boff}"
+
+    msg="  ${_func_color}${PN}${Boff}${Con} default behavior is to build pkglist from developer's package.env${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${Con}Only one method of specifying an alternate source for pkglist is allowed${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="    ${_data_color}-f ${Aon}/path/to/file, ${_data_color}pkg pkg pkg ${Aon}(arg list),"
+    msg+=" ${Yon}or ${Boff}package.env (${BYon}default${Boff}, no arg)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}pkg${Boff} ${Con}must be a valid [<category>/]<package>${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-f${Boff} ${Con}and ${_data_color}pkg [pkg]${Boff} ${Con}are exclusive${Boff}"
+    msg+=" (rejected as error)"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${_data_color}-f${Boff} ${Con}and ${_data_color}-r <arg>${Boff} ${Con}are exclusive${Boff}"
+    msg+=" (\"last one wins\")${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    msg="  ${Con}for ${_data_color}-r <timestamp>${Boff}, ${Con}format is"
+    msg+=" ${BAon}YYYYMMDD-HH:MM:SS${Boff} or ${BAon}YYYY-MM-DD HH:MM:SS${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+
+    j_msg "-${notice}" -pm ""  # severity-sensitive newline
+}
+
+parse_cmdline()
+{   local result=0 opt="" OPTIND=1
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # see getopts --help, or help getopts, and man getopts
+    #  leading : places getopts into silent error reporting mode
+    #  subsequent : indicates preceding (f,r) requires an argument
+    #  if the first positional parameter does not start with '-' (i.e. is not an option
+    #  flag) then getopts returns nonzero and the while loop does not run at all.
+    while getopts ":f:r:INvqh" opt; do
+        case "$opt" in
+            f)  # source pkglist from file
+                [ -n "$OPTARG" ] || die "Option [-f] requires a nonempty target" 1
+                pkg_file="$OPTARG"
+                resume_target=""   # last one wins, -n guard above makes it safe
+                ;;
+            r)  # RESUME
+                [ -n "$OPTARG" ] || die "Option [-r] requires a nonempty target" 1
+                resume_target="$OPTARG"
+                pkg_file=""   # last one wins, -n guard above makes it safe
+                ;;
+            I)  # INTERACTIVE on
+                INTERACTIVE=$TRUE
+                j_msg "-${debug}" -p "set INTERACTIVE [$(status_color "$INTERACTIVE")$(TrueFalse "$INTERACTIVE")]"
+                ;;
+            N)  # INTERACTIVE off
+                INTERACTIVE=$FALSE
+                j_msg "-${debug}" -p "set INTERACTIVE [$(status_color "$INTERACTIVE")$(TrueFalse "$INTERACTIVE")]"
+                ;;
+            q)  # decrease verbosity
+                _pc_operator="-"
+                _pc_action_verbosity
+                ;;
+            v)  # increase verbosity
+                _pc_operator="+"
+                _pc_action_verbosity
+                ;;
+            h) usage; exit 0 ;;
+            :) die "Option [-$OPTARG] requires an argument" ;;
+            \?) die "Invalid option [-$OPTARG]" ;;
+        esac
+    done
+    # OPTIND is initialized to 1 and incremented as getopts consumes options and their arguments.
+    # If there are no '-' prefixed options, OPTIND remains 1 and the
+    #     'shift $(( OPTIND - 1 ))' below becomes "shift 0"
+    # Note: getopts recognizes '--' as the optional but explicit end-of-options delimiter,
+    #    increments the internal pointer variable (OPTIND), and returns non-zero, thus exiting
+    #    the while loop and ceasing option flag processing
+    # When the optional '--' is used, that last advancement of OPTIND enables the
+    #    'shift $(( OPTIND - 1 ))' below to drop the '--' and everything prior to it
+    #    from the cmdline's positional parameters, leaving only parameters that are
+    #    arguments not used by option flags but by the script itself (such as those
+    #    specifying one or more package names, overriding use of package.env when neither
+    #    -f nor -r is used)
+    shift $(( OPTIND - 1 ))
+
+    j_msg "-${debug}" -p "${FUNCNAME[0]} - after getopts"
+    j_msg "-${debug}" -p "resume_target: [$resume_target]"
+    j_msg "-${debug}" -p "pkg_file: [$pkg_file]"
+
+    # resume_target is initialized to an empty string at the top of the script, so if it
+    # is not empty, getopts set resume_target="$OPTARG".  Check to ensure there are not also
+    # other args on the command line (the only reason for which would be the user
+    # intended to provide category/package names that way, too (but that is not supported)
+    [ -n "$resume_target" ] && [ "$#" -gt 0 ] &&
+        { j_msg "-${err}" -p -M "$idx_no_entry" "Specify either -r l[atest]|<timestamp> or pkg args, not both"; usage; exit 1 ; }
+
+    # pkg_file is initialized to an empty string at the top of the script, so if it
+    # is not empty, getopts set pkg_file="$OPTARG".  Check to ensure there are not also
+    # other args on the command line (the only reason for which would be the user
+    # intended to provide category/package names that way, too (but that is not supported)
+    [ -n "$pkg_file" ] && [ "$#" -gt 0 ] &&
+        { j_msg "-${err}" -p -M "$idx_no_entry" "Specify either -f <path> or pkg args, not both"; usage; exit 1 ; }
+
+    # if this is a resumed run, call restore_run_state_for_resume to set starting state for transition to main
+    if [ -n "$resume_target" ]; then
+        restore_run_state_for_resume
+    # if getopts set pkg_file="$OPTARG", first ensure the file exists, then assign pkglist
+    elif [ -n "$pkg_file" ]; then
+        [ -f "$pkg_file" ] || die "Package-list file [$pkg_file] not found"
+        # read package names from file (strip comments and blank lines
+        j_msg "-${notice}" -p -n "populating pkglist array from file [$pkg_file]"
+        if readarray -t pkglist < <(
+            grep -v "^${W0}#" "$pkg_file" |    # strip comments
+            sed "/^${W0}$/d" |   #.............# strip blank lines
+            awk '{print $1}'   #...............# package name is the first word
+        ); then result=0; else result=$?; fi
+        handle_result "$result" "" "" "$notice" || die "failed to populate pkglist array from [$pkg_file]"
+        pkg_source="alternate_file"
+    # if not done by -f, pkglist could be sourced from command line args if they exist; so check
+    elif [ "$#" -gt 0 ]; then
+        j_msg "-${notice}" -p -n "populating pkglist array from command line arguments"
+        pkglist=( "$@" )   # dont need if test b/c it cant really fail
+        handle_result 0 "" "" "$notice" || die "failed to populate pkglist array from cmdline args"
+        pkg_source="cmdline_args"
+    # otherwise default to reading it from package.env (if this is not a resumed run)
+    else
+        j_msg "-${debug}" -p "resume_target: [$resume_target]"
+        j_msg "-${debug}" -p "phase: [$phase]"
+        # using else if... rather than elif for readability because
+        # this is the fallback else, and  the if is a guard
+        if [ -z "$resume_target" ] && (( phase == 1 )); then
+            j_msg "-${notice}" -p -n "populating pkglist array from package.env"
+            populate_pkglist_from_package_env
+            pkg_source="package_env"
+        fi
+    fi
+}
+
+populate_pkglist_from_package_env() {
+    local result=0
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # populate pkglist
+    j_msg "-${notice}" -p -n "populating pkglist array from package.env"
+    if readarray -t pkglist < <(
+        grep -E 'nodist_features.conf' "$package_env_file" |
+        awk '{print $1}'
+    ); then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || die "failed to populate pkglist array from package.env"
+}
+
+restore_run_state_for_resume() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local -a find_args=()
+    local -n _rsr_var _rsr_src _rsr_dst  # local namerefs for assigning global variables
+    local candidate_ts=""
+    local result=0 msg="" pkg=""
+    local _rsr_file="" _rsr_type="" _rsr_suffix="" _rsr_filesize=""
+    local STATUS_FLAG=$FALSE
+    local -a not_pending=()   # comprehensive list of the subset of pkglist that is "already done" in current run state
+    local -A exclude_map=()   # associative array keyed on pkg name, used to build pending from pkglist minus not_pending
+    local -a pending=()   #...# comprehensive list of the subset of pkglist that is still pending in current run state
+
+    # restore algorithm - for restoring run state anywhere in three-phase workflow
+    # restore and read status_file - in particular reocver $phase
+    # restore original pkglist[] from pkglist_file
+    # restore outcome arrays from their persistence files
+    # overwrite default excepted[] from persistence file which was tailored for the interrupted run
+    # based on phase determine which outcomes should exclude a package (consider it no longer pending) in the resumed phase
+    # build an associative exclude_map from those outcomes (all packages found in those recovered outcome arrays)
+    # iterate original pkglist[] in its original and retain packages as pending[] if not in the map
+    # replace pkglist[] content with this pending[] list
+
+    status_file=""   #initialize
+    # identify the most recent status_file
+    # find files matching template; print path (%p)
+    # build find_args in an array in order to comment/explain each
+    find_args=( /tmp/ -mindepth 1 -maxdepth 1 )   #........# look inside the /tmp/ dir only, not at it or subdirs
+    find_args+=( -type f -name 'test-harness-status-*' )   # filter for files with name matching template
+    find_args+=( ! -name '*.tmp' )   #.....................# exclude .tmp files to avoid accicental selection
+    find_args+=( -printf '%p\n' )   #......................# print path (date-sortable b/c ts in in filename)
+    # pipe find output through filters - sort reverse and keep first only
+    # guard against file not found or found but testing hasnt put anything in it yet
+    # ( -s tests size > 0; if file not found, then "$status_file"  = "" and -s fails
+
+    # start by getting and validating the timestamp
+    case "$resume_target" in
+        l|latest)
+            j_msg "-${notice}" -p "looking for most recent status_file"
+            status_file=$( find "${find_args[@]}" | sort -r | head -n 1 );
+            if [ -n "$status_file" ] ; then
+                candidate_ts="${status_file##*test-harness-status-}"
+                j_msg "-${notice}" -p -n "Validating candidate timestamp [$candidate_ts]"
+                if is_valid_timestamp "$candidate_ts"; then
+                    result=0
+                    ts="$candidate_ts"
+                else
+                    result=$?
+                    printf '\n'   # close line left open by j_msg -n
+                    die "invalid timestamp [$candidate_ts] in discover_and_validate_ts" "$result"
+                fi
+                handle_result "$result" "$ts" "" "$notice" || die "failed to validate timestamp [$candidate_ts]"
+            else
+                # use 1 for die's $2 b/c shell check complains $? refers to condition not command and failed [ ... ] is always>
+                result=1
+                printf '\n'   # close line left open by j_msg -n
+                die "no status_file found, from which to discover timestamp" 1
+            fi
+            _rsr_suffix=
+            ;;
+        *)
+            # Specific historical timestamp requested.
+            candidate_ts="$resume_target"
+            status_file="/tmp/${PN}-status-${candidate_ts}"
+            if is_valid_timestamp "$candidate_ts"; then
+                result=0
+                # accept either YYYYMMDD-HH:MM:SS or YYYY-MM-DD HH:MM:SS; normalize to former
+                j_msg "-${notice}" -p -n "Normalizing timestamp for ressume_target [$resume_target]"
+                if ts=$(normalize_timestamp "$candidate_ts"); then result=0; else result=$?; fi
+                handle_result "$result" "$ts" "" "$notice" || die "failed to normalize_timestamp [$candidate_ts]"
+            else
+                result=$?
+                printf '\n'   # close line left open by j_msg -n
+                die "invalid timestamp [$candidate_ts] in discover_and_validate_ts" "$result"
+            fi
+            ;;
+    esac
+
+    # validate the set of persistence files (file_set) associated with the validted timestamp
+    # iterate over outcome_list plus status and pkglist to look at those files too
+    # dont include tmp - it will be created by update_status_file atomic write
+    for _rsr_type in status pkglist "${outcome_list[@]}"; do
+        _rsr_file="/tmp/${PN}-${_rsr_type}-${ts}"
+        j_msg "-${notice}" -p -n "Validating _rsr_file [$_rsr_file]"
+        if [[ -f "$_rsr_file" && -r "$_rsr_file" && ! -L "$_rsr_file" ]] ; then result=0; else result=1; fi
+        right_status "$result" "$notice" ||
+            die "Missing, unreadable or unsafe resume _rsr_file [$_rsr_file]" 1
+    done
+
+    # assign filenames for the persistence files
+    # iterate over outcome_list plus tmp. status and pkglist to do those files too
+    # (note one-off for tmp because it is a filename extension)
+    for _rsr_type in tmp status pkglist "${outcome_list[@]}"; do
+        # use 'declare -n' to create a local nameref pointing to target global variables
+        # (thus the target variables, e.g. status_file are declared at global scope)
+        case "$_rsr_type" in
+            tmp)
+                declare -n _rsr_var="tmp_file"
+                _rsr_suffix="status-${ts}.tmp"
+                ;;
+            *)
+                declare -n _rsr_var="${_rsr_type}_file"
+                _rsr_suffix="${_rsr_type}-${ts}"
+                ;;
+        esac
+        # assign the path globally through the nameref
+        # ("${!_rsr_var}" evaluates to the name referenced)
+        j_msg "-${debug}" -p -n "assigning nameref for [${!_rsr_var}]"
+        if _rsr_var="/tmp/${PN}-${_rsr_suffix}"; then result=0; else result=$?; fi
+        right_status "$result" "$debug" || die "failed to assign nameref for ${!_rsr_var}" "$result"
+    done
+
+    # verify the pkglist_file is populated
+    j_msg "-${notice}" -p -n "Verifying pkglist_file is populated"
+    if [ -s "$pkglist_file" ] ; then result=0; else result=1; fi
+    _rsr_filesize=$(stat -c %s "$pkglist_file") || die "failed to get filesize of pkglist"
+    handle_result "$result" "size: [$_rsr_filesize bytes]" "" "$notice" || die "Original pkglist_file is empty [$pkglist_file]" 1
+
+    # status_file can legitimately be empty if testing never started
+    # read if size > 0 and validate the status_file
+    j_msg "-${notice}" -p -n "Checking if status_file is populated"
+    _rsr_filesize=$(stat -c %s "$status_file") || die "failed to get filesize of pkglist"
+    j_msg "-${notice}" -mp -n "${BGon}${_rsr_filesize}${Boff}"
+    right_status 0 "$notice"
+
+    # if size is > 0, (re)initialize status variables and then read read the status_file
+    if [ -s "$status_file" ]; then
+        # reinitialize live global status variables
+        phase=""
+        initial_pkglist_count=""
+        pkglist_count=""
+        prog_start=""
+        prog_end=""
+
+        j_msg "-${notice}" -p -n "Reading status_file"
+        if read_status; then result=0; else result=$?; fi
+        right_status "$result" "$notice" || die "failed to read status_file" "$result"
+        # validate - if exists, file should have at least phase, initial_pkglist_count and prog_start
+
+        # phase - check for integer completion, and valid range
+        j_msg "-${notice}" -p "Validating phase"
+        if ! isint "$phase" ; then result=1
+        elif (( phase == 99 )); then result=2
+             j_msg "-${notice}" -p "Status file contains phase 99: [$phase], this test run is already complete."
+        elif (( phase < 1)) || (( phase > 3 )); then result=3
+        else result=0
+        fi
+        case "$result" in
+            0) ;;  # ok
+            1) die "Status file contains invalid (non-integer) phase [$phase]" ;;
+            2) leave "Status file contains phase 99: [$phase]; this test run is already complete" ;;
+            3) die "Status file contains invalid (out of range) phase [$phase]" ;;
+        esac
+
+        # initial_pkglist_count - check for integer (count)
+        j_msg "-${notice}" -p -n "Validating initial_pkglist_count"
+        if isint "$initial_pkglist_count"; then result=0; else result=$?; fi
+        handle_result "$result" "initial_pkglist_count: [$initial_pkglist_count]" "" "$notice" || STATUS_FLAG="$TRUE"
+
+        # pkglist_count - check integer
+        j_msg "-${notice}" -p -n "Validating pkglist_count"
+        if isint  "${pkglist_count}"; then result=0; else result=1; fi
+        handle_result "$result" "pkglist_count: [$pkglist_count]" "" "$notice" || STATUS_FLAG="$TRUE"
+
+        # prog_start -  check for integer (seconds)
+        j_msg "-${notice}" -p -n "Validating prog_start"
+        if isint "$prog_start"; then result=0; else result=1; fi
+        handle_result "$result" "prog_start: [$prog_start]" "" "$notice" || STATUS_FLAG="$TRUE"
+
+        # cur_pkg_name - check defined
+        j_msg "-${notice}" -p -n "Validating cur_pkg_name"
+        if [ "${cur_pkg_name+defined}" = "defined" ]; then result=0; else result=1; fi
+        handle_result "$result" "cur_pkg_name: [$cur_pkg_name]" "" "$notice" || STATUS_FLAG="$TRUE"
+
+        # cur_pkg_start - check defined
+        j_msg "-${notice}" -p -n "Validating cur_pkg_start"
+        if [ "${cur_pkg_start+defined}" = "defined" ]; then result=0; else result=1; fi
+        handle_result "$result" "cur_pkg_start: [$cur_pkg_start]" "" "$notice" || STATUS_FLAG="$TRUE"
+    else
+        # a "legitimate" existing but empty status file is possible only if interruption occurred before
+        # initialize_run completed (so the first call to update_status_file did not happen).
+        # If other members of the persisted file set are present and populated, then this could be a status_file
+        # which was corrupted to zero content. It is possible to reconstruct what the status file should contain
+        # if the rest of the fileset is complete, but that capability is not yet implemented.
+        # Thus, until such an analytical recovery engine is available, an existing but zero length
+        # status file should be interpreted to represent an "uninitialized run", and the program should exit
+        j_msg "-${err}" -p "${BRon}status_file is empty.${Boff} (It may be un-initialized or corrupted)"
+        j_msg "-${warn}" -p "Status file reconstruction from otherwise valid fileset is not yet supported"
+        die "Un-initialize or corrupted (empty) status file" 1
+    fi
+
+    # if discovery and validation was unsuccessful - take this action
+    msg="${BRon}STATUS_FLAG${Boff} is set (see red flags above); recover manually or start new run"
+#    [ "$STATUS_FLAG" ] && j_msg "-${warn}" -p "$msg"    ### (deferred) to do: implement analytical recovery from fileset
+    [ "$STATUS_FLAG" ] && die "$msg" 1
+
+    # discovery and validation was successful above - set the initial_phase variable to the
+    # same value read by read_status above (this is used later, once the program has resumed
+    # normal flow (subsequent phases) to turn off the "resuming" logic that is not normal flow
+    initial_phase="$phase"
+
+    # discovery and validation was successful above - restore outcome and pkglist arrays
+    # read persistence file contents directly into globally scoped indexed arrays
+    # iterate over outcome_list plus pkglist to do that file too
+    # (excludes 'tmp' and 'status' because they do not represent individual package lists)
+    for _rsr_type in pkglist "${outcome_list[@]}"; do
+        # dynamically point a nameref to the global filename variable created above
+        # e.g., if $_rsr_type is "succeeded", _rsr_src points to the variable "succeeded_file"
+        declare -n _rsr_src="${_rsr_type}_file"
+
+        # initialize the target indexed array globally (-g) matching the type name
+        declare -ag "$_rsr_type"
+
+        # bind a local nameref to point directly into the new target array
+        declare -n _rsr_dst="$_rsr_type"
+
+        # safely ingest the file content into the global array
+        # -t strips the trailing newlines from each line
+        # note: line format differs for outcome files vs input controls (pkglis excepted) -- examples:
+        # file: /tmp/test-harness-pkglist-20261011-23:38:04
+        # line: fastfetch
+        # file: /tmp/test-harness-retry-20261011-23:38:04
+        # line: 1   fastfetch   00:00:00:12      <-- for these lines, take just awk's $2
+        case "$_rsr_type" in
+            pkglist|excepted) readarray -t _rsr_dst < "$_rsr_src" ;;
+            *) readarray -t _rsr_dst < <( awk '{print $2}' "$_rsr_src" ) ;;
+        esac
+
+        # unset local nameref variables cleanly before the next iteration loop
+        unset -n _rsr_src _rsr_dst
+    done
+
+    # excepted[] array is loaded above from excepted_file, which is already a run-apprpriate subset
+    # of the excepted[] created at the top of the script, but we need to assign excepted_count for live tracking
+    excepted_count="${#excepted[@]}"
+
+    # replace pkglist[] with phase-appropriate content
+    # include all but only phase-relevant terminal and transient outcomes
+    j_msg "-${notice}" -p -n "Constructing phase [$phase] non_pending array"
+    if case "$phase" in
+        1)   # failed, blocked, prepared are as of yet NA
+            not_pending=(
+                "${excepted[@]}" "${succeeded[@]}" "${unvalidated[@]}" "${retry[@]}"
+            ) ;;
+        2)   # retry now NA, failed are as of yet NA
+            not_pending=(
+                "${excepted[@]}" "${succeeded[@]}" "${unvalidated[@]}" "${blocked[@]}" "${prepared[@]}"
+            ) ;;
+        3)    # all terminal only
+            not_pending=(
+                "${excepted[@]}" "${succeeded[@]}" "${unvalidated[@]}" "${blocked[@]}" "${failed[@]}"
+            ) ;;
+        *) printf '\n'; die "invalid case in non_pending construction"
+    esac; then result=0; else result=$?; fi
+    handle_result "$result" "${#not_pending[@]} pkgs" "" "$notice" ||
+        die "failed to construct phase [$phase] non_pending array"
+
+    # convert the not_pendinge exclusion list into an associative map for instant O(1) lookups
+    j_msg "-${notice}" -p -n "Building phase [$phase] associative exclude_map"
+    if for pkg in "${not_pending[@]}"; do
+        exclude_map["$pkg"]=1
+    done; then result=0; else result=$?; fi
+    handle_result "$result" "${#exclude_map[@]} pkgs" "" "$notice" ||
+        die "failed to build phase [$phase] associative exclude_map"
+
+    # filter the original master pkglist to build the clean still_pending pkglist array
+    pending=()
+    j_msg "-${notice}" -p -n "Assigning phase [$phase] pending list"
+    if for pkg in "${pkglist[@]}"; do
+        # if the package does NOT exist in the exclude_map, add it to pending
+        # POSIX parameter expansion rule ${var+string} checks
+        # if var is set (exists), , it substitutes <string> ("set" below)-------which -z evaluates as false
+        # if var is not set (does not exist), it substitutes nothing (i.e. "") - which -z evaluates as true
+        if [ -z "${exclude_map["$pkg"]+set}" ]; then
+            pending+=( "$pkg" )
+        fi
+    done; then result=0; else result=$?; fi
+    handle_result "$result" "${#pending[@]} pkgs" "" "$notice" ||
+        die "failed to assign phase [$phase] pending list"
+
+    # now replace pkglist with pending
+    j_msg "-${notice}" -p -n "Transferring phase [$phase] pending list as recovered run state pkglist"
+    if pkglist=( "${pending[@]}" ); then result=0; else result=$?; fi
+    handle_result "$result" "${#pkglist[@]} pkgs" "" "$notice" ||
+        die "failed to transfer phase [$phase] pending list as recovered run state pkglist"
+
+}
+
+initialize_run() {
+    local _ir_type="" _ir_suffix="" result=0 pkg_count=0
+    local -n _ir_var   # local nameref for assigning global variables
+    local pkg="" msg=""
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+
+    # assign initial_pkglist_count since pkglist_count will change in subsequent phases
+    initial_pkglist_count="${#pkglist[@]}"
+
+    # start the clock for program duration tracking
+    prog_start="$(date +%s)"   # current time in seconds
+    # get timestamp to disambiguate other output files
+    ts="$(timestamp)"
+
+    # assign filenames for the persistence files - including tmp and status
+    # iterate over outcome_list plus tmp. status and pkglist to do those files too
+    # (note one-off for tmp because it is a filename extension)
+    for _ir_type in tmp status pkglist "${outcome_list[@]}"; do
+        # use 'declare -n' to create a local nameref pointing to target global variables
+        # (thus the target variables, e.g. status_file are declared at global scope)
+        case "$_ir_type" in
+            tmp)
+                declare -n _ir_var="tmp_file"
+                _ir_suffix="status-${ts}.tmp"
+                ;;
+            *)
+                declare -n _ir_var="${_ir_type}_file"
+                _ir_suffix="${_ir_type}-${ts}"
+                ;;
+        esac
+
+        # assign the path globally through the nameref
+        # ("${!_ir_var}" evaluates to the name referenced)
+        j_msg "-${debug}" -p -n "assigning nameref for [${!_ir_var}]"
+        if _ir_var="/tmp/${PN}-${_ir_suffix}"; then result=0; else result=$?; fi
+        right_status "$result" "$debug" || die "failed to assign nameref for ${!_ir_var}"
+
+        # initialize/truncate the file
+        j_msg "-${debug}" -p -n "initializing [${!_ir_var}]"
+        if : > "$_ir_var"; then result=0; else result=$?; fi
+        right_status "$result" "$debug" || die "failed to initialize ${!_ir_var}"
+    done
+
+    # safely populate the global pkglist_file
+    j_msg "-${debug}" -p -n "populating pkglist [${#pkglist[@]} pkgs]"
+    if printf '%s\n' "${pkglist[@]}" > "$pkglist_file"; then
+        result=0
+        # guard agains wc failure in case (future) maybe running under set -e
+        pkg_count=$(wc -l < "$pkglist_file") ||
+            die "failed to count lines in pkglist_file [$pkglist_file]"
+    else
+        result=$?
+    fi
+    handle_result "$result" "persisted [$pkg_count pkgs]" "" "$debug" ||
+        die "failed to populate pkglist_file [$pkglist_file]"
+
+    # populate the excepted_file
+    # (relocated from populate_excepted_file()
+    # all excepted packages should be in package.env with nodist_features.conf
+    # assuming pkglist is sourced from package.env, if a pkg is missing alert user,
+    # but only if package.env was the source of pkglist
+    # only write the names of those actually found in pkglist into the excepted_file
+    for pkg in "${excepted[@]}"; do
+        # only if pkg is in pkglist, append it to excepted_file; else warn that it is missing
+        if printf '%s\n' "${pkglist[@]}" | grep -Fxq "$pkg"; then
+            printf '%s\n' "$pkg" >> "$excepted_file"
+            j_msg "-${debug}" -M -P "Package [$pkg] added to excepted_file: [$excepted_file]"
+        else
+            if [[ "$pkg_source" == "package_env" ]]; then
+                msg="${BYon}Warning${Boff}: Excepted package [$pkg] is not pkglist"
+                msg+=" (i.e. it may be missing from package.env w nodist_features)"
+                j_msg "-${warn}" -M -P "$msg"
+            fi
+        fi
+    done
+
+    # calculate the count of pkglist files excepted in this run (it does not change)
+    excepted_count=$(wc -l < "$excepted_file")
+
+    # now that all files exist and some are populated, update status file
+    update_status_file "1" "" ""
+
+    # write some debug info on the run state and pkglist (mainly for logging)
+    j_msg "-${debug}" -p "phase: [$phase]"
+    [ -n "$resume_target" ] && j_msg "-${debug}" -p "This is a RESUME run; resume_target: [$resume_target]"
+
+    # shell chech says expressions dont expand in '...' , but that is the whole point for d_do
+    # shellcheck disable=SC2016
+    d_do 'printf "%s\n" "${pkglist[@]}"' "$debug"
+}
+
+validate_pkglist_exception_policy() {
+    local pkg="" candidate=""
+
+    # enable user to specify package name w/o category on the cmdline (as w emerge)
+    # but reject it if is in the excepted array
+    for pkg in "${pkglist[@]}"; do
+        # category-qualified names support exact policy matching
+        [[ "$pkg" == */* ]] && continue
+
+        # if a package name w/o category (unqualified) is found in excepted[], exit
+        for candidate in "${excepted[@]}"; do
+            if [[ "$pkg" == "${candidate##*/}" ]]; then
+                die "Unqualified package [$pkg] overlaps excepted [$candidate]; specify category/package" 1
+            fi
+        done
+    done
+}
+
+update_status_file() {
+    [ $# -eq 3 ] || die "${FUNCNAME[0]} requires 3 args: phase, pkg, pkg_start" 1
+    local my_phase="$1" pkg="${2:-}" pkg_start="${3:-}"
+    local result=0
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${debug}" -p "status_file: [$status_file]"
+    j_msg "-${debug}" -p "my_phase: [$my_phase]; pkg: [$pkg]; pkg_start: [$pkg_start]"
+    local -a status_lines=()
+    # my_phase 1 has completed; persist the transition before
+    # clearing transient-persisted records (e.g. retry_file
+    j_msg "-${notice}" -p -n "updating status_file"
+    status_lines=( "phase=\"${my_phase}\"" )
+    status_lines+=( "initial_pkglist_count=\"${initial_pkglist_count}\"" )
+    status_lines+=( "pkglist_count=\"${#pkglist[@]}\"" )
+    status_lines+=( "prog_start=\"$prog_start\"" )
+    status_lines+=( "cur_pkg_name=\"$pkg\"" )
+    status_lines+=( "cur_pkg_start=\"$pkg_start\"" )
+    if printf '%s\n' "${status_lines[@]}" > "$tmp_file" &&
+        mv -f -- "$tmp_file" "$status_file"; then
+        result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" ||
+        die "failed to update status_file" "$?"
+}
+
+validate_distcc_compiled() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # make only one pass through a potentiall very large section of the log;
+    # feed tail to awk with process substitution to avoid vulnerability of pipeline feed to
+    #   pipefail termination, because this way if tests only awk's exit status.
+    # provide pathname of pkg as an ask variable
+    # note two awk action blocks --
+    #   awk_pkg_pids[pid] is an associative array keyed on pid -- identify which pids this package started
+    #   remote_ok[pid] is an associattive array keyed on pid -- identify this pid completed remotely
+    # for some packages the full pathname US ib the completed ok, line but for many packages,
+    #   there is no single log line that contains both pieces of info; so we have one block to
+    #   collect each, and having both = success (if a line comes through that hits on both blocks
+    #   but for many packages it will take more than one line from the process
+    # *** CAUTION *** there can be no single quotes inside the awk script ' ... '
+    # *** CAUTION *** there can be no single quotes inside the awk script ' ... '
+    # *** CAUTION *** there can be no single quotes inside the awk script ' ... '
+    if awk -v pkgdir="/var/tmp/portage/" -v pkg="${pkg}" '
+            # check if the current log line contains the package build path substring
+            # use index($0, var) [literal string match] rather than $0 ~ var [regex match]
+            # to match pkgdir name exactly w/o confusing e.g. "." as "any char"
+            # but use regex match for /pgk<digit> to use numeric character class to ensure
+            # it matches both the / left of pkg name AND the first digig of a version number after "-"
+            # thus differentiating (e.g. for pkg = fastfetch /fastfetch-2.65.2-r1 (good)
+            # from /fastfetch-tools-1.0 (bad) - note implicit concatenation of the three parts
+            # caveat: regex can misbehave if pkg contains regex metacharacters like + or .
+            # this mitigates that risk by dropping "index($0, pkgdir) && $0 ~ ("/" pkg "-[0-9]")"
+            # for the safer substring extraction below
+            index($0, pkgdir) {
+                p = index($0, "/" pkg "-")   #......# get index locating "/pkg-"
+                if (p && p > index($0, pkgdir) &&   # ensure that p is to the right of pkgdir
+                # extract a 1-char substring offset from the location of /pkg- by the length of pkg + 2
+                # (i.e. len pkg + "/" + "-") and compare to a solitary single digit 0-9
+                substr($0, p + length(pkg) + 2, 1) ~ /^[0-9]$/) {
+                    pid=$1   #..................# lines start "distcc[<pid>]"
+                    sub(/^distcc\[/, "", pid)   # strip "distcc[" from prefix
+                    sub(/\]$/, "", pid)   #.....# strip "]" from suffix
+                    awk_pkg_pids[pid]=1   #..........# assign awk_pkg_pids for this line (which is not an ok/fail line)
+                    # if pid is for pkg AND remote_ok, success
+                    if (remote_ok[pid]) { found=1; exit ; }
+                }
+            }
+            # if line matches a completed compile NOT done by local host ...
+            / completed ok/ && / compile / && !/ on localhost/ {
+                pid=$1   #..................# lines start "distcc[<pid>]"
+                sub(/^distcc\[/, "", pid)   # strip "distcc[" from prefix
+                sub(/\]$/, "", pid)   #.....# strip "]" from suffix
+                remote_ok[pid]=1   #..........# assign remote_ok pid for this pid (which may not be a pkg pid)
+                # if pid is for pkg AND remote_ok, success
+                if (awk_pkg_pids[pid]) { found=1; exit ; }
+            }
+            # no single log line can make both assignment above; if both are now made, this is validated
+            END { exit(found ? 0 : 1) ; }
+        ' < <( tail -n "+$((distcc_log_start + 1))" "$distcc_log" )
+    then
+        return 0   # SUCCESS (found evidence distcc helped compile)
+    else
+        return 1   # FAILED to validate (no evidence distcc helped compile pkg)
+    fi
+}
+
+runtest() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${debug}" -p "dumping live status variables"
+    # shell chech says expressions dont expand in '...' , but that is the whole point for d_do
+    # shellcheck disable=SC2016
+    d_do 'dump_status' "$debug"
+    j_msg "-${debug}" -p "dumping current status file"
+    # shellcheck disable=SC2016
+    d_do 'cat "$status_file"' "$debug" || die "failed to dump status_file [$status_file]"
+    local result=0
+    local pkg_start="" pkg_end="" pkg_elapsed="" pkg_elapsed_fmt=""
+    local pkg="" msg="" candidate="" outcome=""
+    for pkg in "${pkglist[@]}"; do
+        # if pkg is in the excepted list, then just skip it
+        for candidate in "${excepted[@]}"; do
+            [[ "$pkg" == "$candidate" ]] && continue 2   # resume the 2th enclosing loop (get next pkg)
+        done
+        # start the test timer clock
+        pkg_start=$(date +%s)   # start time in seconds
+        # (re)set the logfile line count to know where to start looking at records to validate
+        distcc_log_start=$(wc -l < "$distcc_log")
+        # build replacement status file with current package name and start time in status_file
+        j_msg "-${debug}" -p -n "Start of runtest; updating status via tmp_file [$tmp_file]"
+        update_status_file "$phase" "$pkg" "$pkg_start"
+        j_msg "-${notice}" -m "${Con}Testing ${BCon}${pkg}${Boff}"
+        # run the emerge command line parts constructed by build_cmd; collect status; validate success
+        # use the env utility to adjust the environment with key-value assignments, just for this command
+        # (this wont work w/o env b/c bash will try to execute as "the command" the first array element (after expansion)
+        if env "${emerge_env[@]}"  emerge "${args[@]}" "$pkg"; then
+            result=0
+            # implication of failure outcome differs by phase
+            if (( phase == 2 )); then
+                # these are the packages prepared for phase 3
+                prepared+=( "$pkg" )
+                outcome="prepared"
+            else
+                j_msg "-${notice}" -m "Validating [$pkg] as distcc-compiled ..."
+                if validate_distcc_compiled; then
+                    result=0
+                    succeeded+=( "$pkg" )
+                    outcome="succeeded"
+                    # display result for successful emerge, showing wheter distcc helped or not
+                    j_msg "-${notice}" -p -n "Good emerge; confirmed distcc helped compile [$pkg]; result:"
+                    handle_result "$result" "Yes" "No; status: [$result]" "$notice"
+                else
+                    result=$?   # overwrite emerge result with validate result
+                    unvalidated+=( "$pkg" )
+                    outcome="unvalidated"
+                    # display result for successful emerge, showing wheter distcc helped or not
+                    j_msg "-${notice}" -p -n "Good emerge but no evidence distcc helped compile [$pkg]; result:"
+                    handle_result "$result" "Yes" "No; status: [$result]" "$notice"
+                fi
+            fi
+        else
+            result=$?
+            # implication of failure outcome differs by phase
+            if (( phase == 1 )); then
+                retry+=( "$pkg" )
+                outcome="retry"
+            elif (( phase == 2 )); then
+                blocked+=( "$pkg" )
+                outcome="blocked"
+            else
+                failed+=( "$pkg" )
+                outcome="failed"
+            fi
+            # display result for failed emerge
+            j_msg "-${notice}" -p -n "Done emerging [$pkg]; result:"
+            handle_result "$result" "" "failed; status: [$result]" "$notice"
+        fi
+        # stop the test clock and record the elapsed time
+        pkg_end=$(date +%s)   # end time in seconds
+        pkg_elapsed=$(( pkg_end - pkg_start ))
+        pkg_elapsed_fmt=$( secs2time "$pkg_elapsed" )
+        # write package name to the appropriate file, per outcome
+        j_msg "-${notice}" -p -n "writing outcome to persistence file"
+        msg="$phase   $pkg   $pkg_elapsed_fmt"
+        if case "$outcome" in
+            succeeded  ) printf '%s\n' "$msg" >> "$succeeded_file" ;;
+            unvalidated) printf '%s\n' "$msg" >> "$unvalidated_file" ;;
+            retry      ) printf '%s\n' "$msg" >> "$retry_file" ;;
+            failed     ) printf '%s\n' "$msg" >> "$failed_file" ;;
+            blocked    ) printf '%s\n' "$msg" >> "$blocked_file" ;;
+            prepared   ) printf '%s\n' "$msg" >> "$prepared_file" ;;
+            *          ) die "invalid outcome [$outcome] in ${FUNCNAME[0]}" ;;
+        esac; then result=0; else result=$?; fi
+        handle_result "$result" "" "failed; status: [$result]" "$notice" ||
+            die "failed to write outcome to persistence file"
+
+        # update the status_file to reflect current idle state between tests
+        j_msg "-${debug}" -p "End of runtest, updating status via tmp_file [$tmp_file]"
+        update_status_file "$phase" "" ""
+        # print test result and cumulative info
+        j_msg "-${notice}" -p "Phase [$phase] Test of pkg [$pkg] is done; elapsed: [$pkg_elapsed_fmt]"
+        msg="${BCon}cumulative ${BGon}succeeded: ${Boff}[${BGon}${#succeeded[@]}${Boff}],"
+        msg+=" ${BRon}failed: ${Boff}[${BRon}${#failed[@]}${Boff}]"
+        msg+=" ${BOon}unvalidated: ${Boff}[${BOon}${#unvalidated[@]}${Boff}]"
+        msg+=" ${BMon}excepted: ${Boff}[${BMon}${excepted_count}${Boff}]"
+        msg+=" ${BYon}retry: ${Boff}[${BMon}${#retry[@]}${Boff}]"
+        msg+=" ${BYon}blocked: ${Boff}[${BMon}${#blocked[@]}${Boff}]"
+        msg+=" ${BYon}prepared: ${Boff}[${BMon}${#prepared[@]}${Boff}]"
+        j_msg "-${notice}" -p "$msg"
+    done
+}
+
+prompt_for_interactive() {
+    local msg=""
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${notice}" -mp ""
+    msg="${BYon}Note: ${Boff}By default, the command above will be run for every package in the pkglist array"
+    msg+=" However, you can choose here to append --ask to the command"
+    msg+=" and have it ask before running each of the ${#pkglist[@]} packages currently so identified."
+    j_msg "-${notice}" -m "$msg"
+    response=""
+    msg="${BYon}Would you like to append --ask to then command? ${BWon}(y: yes; n: abort; s: skip)${Boff}"
+    yns_prompt "$msg"
+    case "${response:0:1}" in
+        [yY]) args+=( "--ask" ) ;;
+        [nN]) leave "Aborting as instructed" ;;
+        [sS]) ;;   # just keep going
+        *   ) die "Invalid response in $PN" ;;
+    esac
+}
+
+do_phase() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${debug}" -p -n "assigning \$1 [$1] to phase"
+    phase="${1:-1}"
+    handle_result 0 "phase: [$phase]" "" "$debug"
+
+    # if after recovery, there are no packages in pkglist, it is because all packages are accounted
+    # for in that phase's phase-appropirate outcome files, so recover_run_for_resume will have
+    # nothing to put in pkglist; this is normal, but it does not mean that e.g. phase 1 retry[] or
+    # phase 2 prepared[] dont have work to hand to the NEXT phase, so instead of wasting time
+    # running normal program flow to get there, just return to main, so the phase gets incremented
+    # and normal program flow can resume there
+    if [ -n "$resume_target" ] && (( phase == initial_phase )) && (( ${#pkglist[@]} == 0 )) ; then
+        j_msg "-${notice}" -p "Recovered state for resumed test run phase [$phase] has no remaining work; advancing"
+        return 0
+    fi
+
+    # for resumed run, check guards first in initial_phase only, and re-enter normal program flow,
+    # bypassing initial phase transition, already handled in recovery, and proceeding to build_cmd,
+    # using recovered status_file. However, later phases must perform their normal transitions
+    if [ -z "$resume_target" ] || (( phase != initial_phase )); then transition_phases; fi
+    [ "$COMPLETE" ] && return 0   # if transition_phases set COMPLETE, then exit 0 via main
+
+    build_cmd
+    # inmplement INTERACTIVE and skip the show/prompt if not
+    if [ "$INTERACTIVE" ]; then
+        show_config
+        prompt_for_interactive
+    fi
+    runtest
+}
+
+transition_phases() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # commit phase status update before destroying the transient-persisted files
+    case "$phase" in
+        1)
+            # phase 0-1 transition is just a checkpoint
+            update_status_file  "$phase" "" ""
+            ;;  # no phase 1 initial transition requirements known (alrady done above?)
+        2)
+            # if there are no packages in the retry list there is nothing left to test - exit
+            if (( ${#retry[@]} == 0 )); then
+                COMPLETE=$TRUE
+            else
+               # phase 1 retry list becomes phase 2 working pkglist
+                pkglist=( "${retry[@]}" )
+                # checkpoint update immediately after new pkglist assignment
+                update_status_file  "$phase" "" ""
+                # reset retry[] and its file for cumulative counts
+                retry=()
+                : > "$retry_file" || die "failed to clear retry_file [$retry_file]" "$?"
+            fi
+            ;;
+        3)
+            # if there are no packages in the retry list there is nothing left to test - exit
+            if (( ${#prepared[@]} == 0 )); then
+                COMPLETE=$TRUE
+            else
+                # phase 2 prepared list becomes phase 3 working pkglist
+                pkglist=( "${prepared[@]}" )
+                # checkpoint update immediately after new pkglist assignment
+                update_status_file  "$phase" "" ""
+                # reset prepared[] and its file for cumulative counts
+                prepared=()
+                : > "$prepared_file" || die "failed to clear prepared_file [$prepared_file]" "$?"
+            fi
+            ;;
+        *) die "invalid phase [$phase] in ${FUNCNAME[0]}";;
+    esac
+
+}
+
+build_cmd() {
+    # set everything variable that needs to go on the emerge cmdline here
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # assign args with array to enable in-line commenting and readable formulation
+
+    #use FEATURES to control distcc - use emerge args --usepkg=y/n --getbinpkg=y/n to control binpkgs
+    if (( phase == 1 || phase == 3 )); then
+        emerge_features="distcc"
+        emerge_env=( "FEATURES=${emerge_features}" )
+        emerge_env+=( DISTCC_FALLBACK=0 DISTCC_SKIP_LOCAL_RETRY=1 )
+
+    elif (( phase == 2 )); then
+        emerge_features="-distcc"
+        emerge_env=( "FEATURES=${emerge_features}" )
+    else
+        die "invalid phase in runtest" 1
+    fi
+
+    args=( -v1 )   #.............................# verbose, one-shot
+    args+=( --keep-going=y )   #.................# don't stop on error - go to next pkg
+    if (( phase == 1 || phase == 3 )) ; then
+        args+=( --usepkg=n )   #.....................# like NOT -k
+        args+=( --getbinpkg=n )   #..................# like NOT -g
+        args+=( --nodeps )   #.......................# merge specified packages w/o any dependencies
+    elif (( phase == 2 )); then
+        args+=( --usepkg=y )   #.....................# like NOT -k
+        args+=( --getbinpkg=y )   #..................# like NOT -g
+        args+=( --with-bdeps=y --onlydeps )   #......# with build-time dependencies
+    else
+        die "invalid phase [$phase] in build_cmd"
+    fi
+    args+=( --jobs=1 )   #.......................# job-concurrency - i.e. serialize
+    args+=( --quiet-build=n )   #................# disable redirection of all build output to logs alone
+    args+=( --accept-properties=-interactive )   # do not make it interactive
+    args+=( --accept-restrict=-fetch )   #.......# do not restrict fetch
+
+    cmd_msg="${BCon}Command: [${BAon}FEATURES=${BYon}\"${emerge_features}\"${Boff}"
+    if (( phase != 2 )); then
+        cmd_msg+=" ${BAon}DISTCC_FALLBACK=${BMon}0${Boff}"
+        cmd_msg+=" ${BAon}DISTCC_SKIP_LOCAL_RETRY=${BMon}1${Boff}"
+    fi
+    cmd_msg+=" ${BBon}emerge ${Boff}${args[*]}"
+    cmd_msg+=" ${BYon}\${pkg}${BCon}]${Boff}"
+#    j_msg "-${notice}" -p "$cmd_msg"   # display with show_config instead
+}
+
+finalize_run() {
+    local msg="" result=0
+    COMPLETE=$TRUE   # probably redundant because the program has to be complete to get here
+    pkglist=()  # completed run has no pending packages
+    # make a final entry in the status file with special "phase" number "99" encoding completion
+    # this is a workflow completion status; it does not indicate that all packages successfully compiled
+    j_msg "-${notice}" -p -n "Sending update_status_file \"99\" \"\" \"\""
+    if update_status_file "99" "" ""; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || die "failed to submit  update_status_file  \"99\" \"\" \"\""
+    # append a prog_end line to enable monitor to report elapsed time for the entire test run
+    prog_end="$(date +%s)"   # calculate for rollup as well as this status_file write
+    j_msg "-${notice}" -p -n "Appending prog_end line to status_file"
+    if printf '%s\n' "prog_end=\"$prog_end\"" >> "$status_file"; then result=0; else result=$? ;fi
+    handle_result "$result" "" "" "$notice" || die "failed to write prog_end [$prog_end] to status_file"
+    # allow normal exit status 0 with informative messages in main, so dont use "leave"
+    msg="${BWon}Phase ${BBon}[${BMon}$phase${BBon}]${BWon} has no pending packages;"
+    msg+=" nothing more to do. ${BGon}Test run complete${Boff}"
+    j_msg "-${notice}" -p "$msg"
+}
+
+#----[ main script ]--------------------------------------------------------------------------------
+
+checkroot
+
+separator "$(hostname)" "${PN}-${BUILD}"
+validate_logfile
+
+# parse the command line and '*populate pkglist[ ]*'
+parse_cmdline "$@"
+
+# only make new runs validate this; recovery restores an already-accepted list
+[ ! "$resume_target" ] && validate_pkglist_exception_policy
+
+# sanity-check (make sure parsing actually produced a pkglist, unless this is a resumed run
+if [ ! "$resume_target" ]; then
+    [ "${#pkglist[@]}" -gt 0 ] || die "pkglist is empty (no test packages were found)"
+fi
+
+# do this after parse_cmdline validates the run
+# to avoid resetting values and files (e.g. status_file) to wrong state
+# creates and '*initializes empty persistence files (populates pkglist_file and excepted_file)*'
+# also submits first update to status_file (but does not apply to RESUME flow)
+[ ! "$resume_target" ] && initialize_run
+
+for run_phase in $(seq "$phase" 3); do
+    [ ! "$COMPLETE" ] && do_phase "$run_phase"
 done
+# call finalize_run to make final status update and emit completion message
+finalize_run
+
+# updated final rollup (similar to monitor-test-harness)
+outcome_counts=()   # reinitialize
+for x in "${outcome_list[@]}"; do
+    # identify the output file for this x by concatenating template, x and timestamp
+    file="/tmp/test-harness-${x}-${ts}"
+    separator "${PN}-${BUILD}" "(${x})"
+    part_sum=$(wc -l < "$file")
+    outcome_counts[$x]="$part_sum"
+    cat "$file" | sed 's|^|    |'
+    j_msg "-${notice}" -p "${outcome_color[$x]}$x${Boff}:${BBon} [${outcome_color[$x]}$part_sum${BBon}]${Boff}"
+done
+
+
+j_msg "-${debug}" -p "(debug) dump outcome_counts array"
+# shell check says things dont expand in '...' but doesnt get that in d_do that is the whole point
+# shellcheck disable=SC2016
+d_do 'printf "%s\n" "${!outcome_counts[@]}"' "$debug"
+sum=0
+for x in "${outcome_list[@]}"; do
+    p_sum="${outcome_counts[$x]}"
+    sum=$(( sum + p_sum ))
+done
+printf '\n'; j_msg "-${notice}" -m "${BCon}Cumulative sum: ${BBon}[${BMon}${sum}${BBon}]${Boff}"
+printf '\n'; j_msg "-${notice}" -m "${BBon}Remaining: ${BBon}[${BMon}$(( initial_pkglist_count - sum ))${BBon}]${Boff}"
+# calculate and display elapsed time
+if isint "$prog_start" && isint "$prog_end" && (( prog_end >= prog_start )); then
+    run_elapsed=$(( prog_end - prog_start ))
+    run_elapsed_fmt=$(secs2time "$run_elapsed")
+    msg="${BBon}Total elapsed time for this run: ${BBon}[${BMon}${run_elapsed_fmt}${BBon}]${Boff} [ddd:hh:mm:ss]"
+    printf '\n'; j_msg "-${notice}" -m "$msg"
+else
+    msg="could not calculate run_elapsed time from prog_end [$prog_end] - prog_start [$prog_start]"
+    printf '\n'; j_msg "-${err}" -m "$msg"
+fi
+
+
+#separator "${PN}-${BUILD}" "(succeeded)"
+#j_msg "-${notice}" -p "${BGon}Note list of succeeded, below${Boff}"
+#printf "%s\n" "${succeeded[@]}"
+
+#separator "${PN}-${BUILD}" "(failed)"
+#j_msg "-${notice}" -p "${BRon}Note list of failed, below${Boff}"
+#printf "%s\n" "${failed[@]}"
+
+#separator "${PN}-${BUILD}" "(unvalidated)"
+#j_msg "-${notice}" -p "${BRon}Note list of unvalidated, below${Boff}"
+#printf "%s\n" "${unvalidated[@]}"
+
+#separator "${PN}-${BUILD}" "(blocked)"
+#j_msg "-${notice}" -p "${BRon}Note list of blocked, below${Boff}"
+#printf "%s\n" "${blocked[@]}"
+
+#separator "${PN}-${BUILD}" "(excepted)"
+#j_msg "-${notice}" -p "${BRon}Note list of excepted, below${Boff}"
+#cat "${excepted_file}"
+
+#debug_marker

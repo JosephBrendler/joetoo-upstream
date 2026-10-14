@@ -1,0 +1,57 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# (dead code)
+#
+
+legacy_validate_distcc_compiled() {
+        # validate this pkg as distcc-compiled
+# note legacy method does one pass through log to get pids,
+# then it makes another pass through log for each pid
+# until it finds evidence that distcc helped compile this package remotely
+# for thousands of pids in hundreds of thousands of log lines (as is the
+# case in sys-libs/glibc job incl deps, this will take a LONG time
+#
+        j_msg "-${notice}" -p -n "validating [$pkg] as distcc-compiled ..."
+        readarray -t pkg_pids < <(
+            # tail the logfile starting with this package's start point
+            tail -n "+$((distcc_log_start + 1))" "$distcc_log" |
+            # capture lines with pkg in the pathname
+            grep -F "/var/tmp/portage/${pkg}-" |
+            # extract the pid (succeeded/fail is not recorded in these lines - use pid to find)
+            awk '{
+                pid=$1   #..................# extract first word of line -- distcc[782892]
+                sub(/^distcc\[/, "", pid)   # strip "distcc[" from prefix; assign back to pid variable
+                sub(/\]$/, "", pid)   #.....# strip "]" from suffix; assign back to pid variable
+                print pid   #...............# emit to stdout
+            }' |
+            sort -u   #.....................# sort -u (unique) to eliminate dupes
+        )
+        # use pkg_pids array to find evidence of succeeded/fail
+        REMOTE_SUCCESS=$FALSE
+        for pid in "${pkg_pids[@]}"; do
+            # once again tail the log from this package's start
+            if tail -n "+$((distcc_log_start + 1))" "$distcc_log" |
+                # -F, --fixed-strings -- find lines for this pid
+                grep -F "distcc[$pid]" |
+                # filter for completed compile jobs
+                grep -F 'completed ok' |
+                grep -F ' compile ' |
+                # -v exclude localhost; -q silet for if - then test
+                grep -qv ' on localhost'
+            then
+                # minimum success criterion - at least one file successfully comiled remotely
+                REMOTE_SUCCESS=$TRUE
+                break
+            fi
+        done
+        if [ "$REMOTE_SUCCESS" ] ; then
+            succeeded+=( "$pkg" ); printf '%s\n' "$pkg" >> "$succeeded_file"
+        else
+            unvalidated+=( "$pkg" ); printf '%s\n' "$pkg" >> "$unvalidated_file"
+            result=999   # override "success" result above to reflect in handle_result below
+        fi
+        handle_result "$result" "Yes" "No; status: [$result]" "$notice"
+
+}

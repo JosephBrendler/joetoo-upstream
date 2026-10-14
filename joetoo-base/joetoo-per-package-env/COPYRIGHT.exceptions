@@ -1,0 +1,3 @@
+# list of package-relative file pathnames in which there should NOT be a copyright statement
+./COPYRIGHT.exceptions
+./LICENSES.package

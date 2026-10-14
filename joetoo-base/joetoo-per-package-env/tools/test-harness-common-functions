@@ -1,0 +1,231 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# test-harness-common-functions - to be sourced by using scripts
+#
+# these functions are sourced currently by both test-harness and monitor-test-harness
+
+dump_fileset() {
+    [ "$1" = "-h" ] && {
+        j_msg "-${notice}" -p "usage: dump_fileset [timestamp] [/path/to/archive_dir]";
+        return 0 ; }
+    # used for debugging - source this header in separate terminal
+    # ls -alrt /tmp/
+    local last_ts="${1:-$(latest_ts)}"
+    local archive_dir="${2:-/tmp/}"
+    local x="" msg="" heading=""
+    local template="test-harness-"
+    local -a file_list
+    is_valid_timestamp "$last_ts" ||
+        die "Error: discovered timestamp [$last_ts] is invalid" 1
+
+    # set up find_args in an array so the find and filter pipeline will be human-readable
+    find_args=( "${archive_dir}" -mindepth 1 -maxdepth 1 )    # look inside the dir only, not at it or subdirs
+    find_args+=( -type f -name "${template}*${last_ts}" )   # filter for files with name matching template
+    find_args+=( -printf '%p\n' )   #.......................# print path (date-sortable b/c ts in in filename)
+
+    # similarly in an array, define awk block to prefix input stream lines with sorting weight
+    awk_cmd=(awk '
+        # use BEGIN block to prepare sorting weighte
+        BEGIN {
+            # map sort_order array to numeric weights
+            weights["status"] = 1
+            weights["succeeded"] = 2
+            weights["failed"] = 3
+            weights["unvalidated"] = 4
+            weights["blocked"] = 5
+            weights["excepted"] = 6
+            weights["retry"] = 7
+            weights["prepared"] = 8
+            weights["pkglist"] = 9
+        }
+        # action block examining input sream lines
+        {
+            rank = 99   #...............# non-matched lines sort as last
+            for (w in weights) {   #....# check the line for match vs each of the weights
+                if ($0 ~ w) {
+                    rank = weights[w]   # assign matching weight to rank variable
+                    break   #...........# exit loop immediately after match
+                }
+            }
+            # emit the line to stdout, prefixed by decimal rank
+            printf "%02d %s\n", rank, $0
+        }'
+    )
+
+    # ingest file_list from find lines, ranked by awk_cmd, sorted numeric, then strip rank from prefix
+    mapfile -t file_list < <(find "${find_args[@]}" | "${awk_cmd[@]}" | sort -n | cut -c 4-)
+
+    # provide a visual "what you are seeing" separator and then dump the output in sorted order
+    printf '\n'
+    separator "timestamp: [$last_ts]" "archive_dir: [$archive_dir]"
+    # generate output listing (underlined filename heading for each cat
+    for x in "${file_list[@]}"; do
+        # shell check cant find assignment of $bin_uH_double (script_header_joetoo sourced separately)
+        # shellcheck disable=SC2154#        printf '%s\n' "$(full_repeat "$bin_uH_double" "${#x}")"
+        printf '\n%s%s%s\n' "${Con}" "$x" "${Boff}"
+        printf '%s%s%s\n' "${BBon}" "$(full_repeat "$bin_uH_double" "${#x}")" "${Boff}" 
+#        # generate a heading for separator - basename of file; strip template from prefix; strip timestamp from suffix
+#        heading="$( printf '%s\n' "${x##*/}" | sed "s|^${template}||" | sed "s|-${last_ts}$||" )"
+#        separator "type:" "$heading"
+#        j_msg "-${notice}" -m "${BAon}archive_dir: ${Boff}${Con}${archive_dir}${Boff}"
+        cat -- "$x"
+    done
+}
+# @usage dump_fileset <timestamp> [/path/to/archive_dir]
+# @args $1 = timestamp in format "YYYYMMDD-HH:MM:SS" or "YYY-MM-DD HH:MM:SS"
+# @cont $2 = optional /path/to/archive_dir where fileset is located (defaults to /tmp/)
+# @ret emits to stdout, w/ underlined filename heading, the content of each file in fileset
+
+latest_ts(){
+    local -a find_args=()
+    local discovered_ts=""
+    local result=0
+    local target_dir="${1:-/tmp/}"
+    local latest_status_file=""
+    # identify the most recent status file
+    # find files matching template; exclude files with .tmp|.tbz2 extension print path (%p)
+    # build find_args in an array in order to comment/explain each
+    find_args=( "${target_dir}" -mindepth 1 -maxdepth 1 )   # look inside the dir only, not at it or subdirs
+    find_args+=( -type f -name 'test-harness-status-*' )    # filter for files with name matching template
+    find_args+=( ! -name '*.tmp' )   #......................# exclude .tmp files to avoid accicental selection
+    find_args+=( ! -name '*.tbz2' )   #.....................# exclude .tbz2 files to avoid accicental selection
+    find_args+=( -printf '%p\n' )   #.......................# print path (date-sortable b/c ts in in filename)
+    # pipe find output through filters - sort reverse and keep first only
+    latest_status_file=$( find "${find_args[@]}" | sort -r | head -n 1 );
+    # for this function, latest_status_file need not have content, just a name
+    if [ -n "$latest_status_file" ] ; then
+        discovered_ts="${latest_status_file##*test-harness-status-}"
+        printf '%s\n' "$discovered_ts"
+    else
+        # use 1 for die's $2 b/c shell check complains $? refers to condition not command and failed [ ... ] is alwa>
+        result=1
+        die "no latest_status_file found, from which to discover timestamp" 1
+    fi
+}
+# @usage local last_ts=$(latest_ts)
+# @args optional target_dir (defaults to /tmp/)
+# @ret emits validated latest timestamp on stdout
+# @note since this is designed to run in a subshell, to return ts on stdout, no debug
+# @append or other informational output is generated in this function
+
+list_ts(){
+    [ "$1" = "-h" ] &&
+        { j_msg "-${notice}" -p "usage: list_ts [/path/to/target_dir]"; return 0 ; }
+    local -a find_args=()
+    local discovered_ts=""
+    local result=0
+    local target_dir="${1:-/tmp/}"
+    local latest_status_file=""
+    local template="${target_dir%/}/test-harness-status-"
+    # identify the most recent status file
+    # find files matching template; exclude files with .tmp|.tbz2 extension print path (%p)
+    # build find_args in an array in order to comment/explain each
+    find_args=( "${target_dir}" -mindepth 1 -maxdepth 1 )   # look inside the dir only, not at it or subdirs
+    find_args+=( -type f -wholename "$template"'*' )    # filter for files with name matching template
+    find_args+=( ! -name '*.tmp' )   #......................# exclude .tmp files to avoid accicental selection
+    find_args+=( ! -name '*.tbz2' )   #.....................# exclude .tbz2 files to avoid accicental selection
+    find_args+=( -printf '%p\n' )   #.......................# print path (date-sortable b/c ts in in filename)
+    # pipe find output through filters - sort (latest last); strip template from prefix
+    j_msg "-${notice}" -p "Found the following timestamps in target_dir [$target_dir]"
+    if ! find "${find_args[@]}" | sort | sed "s|$template||"; then
+        die "failed to find"
+    fi
+}
+# @usage list_ts [/path/to/target_dir]
+# @args optional target_dir (defaults to /tmp/)
+# @ret lists timestaps found on files matching template on stdout
+
+discover_and_validate_ts() {
+    # shell check cant find assignment of $debug (script_header_joetoo sourced separately)
+    # shellcheck disable=SC2154
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local -a find_args=()
+    local candidate_ts=""
+    local result=0
+    status_file=""   # initialize (and assign, below) global status_file variable
+    # identify the most recent status file
+    # find files matching template; print path (%p)
+    # build find_args in an array in order to comment/explain each
+    find_args=( /tmp/ -mindepth 1 -maxdepth 1 )   #........# look inside the /tmp/ dir only, not at it or subdirs
+    find_args+=( -type f -name 'test-harness-status-*' )   # filter for files with name matching template
+    find_args+=( ! -name '*.tmp' )   #.....................# exclude .tmp files to avoid accicental selection
+    find_args+=( -printf '%p\n' )   #......................# print path (date-sortable b/c ts in in filename)
+    # pipe find output through filters - sort reverse and keep first only
+    # guard against file not found or found but testing hasnt put anything in it yet
+    # ( -s tests size > 0; if file not found, then "$status_file"  = "" and -s fails
+    status_file=$( find "${find_args[@]}" | sort -r | head -n 1 );
+    if [ -n "$status_file" ] ; then
+        candidate_ts="${status_file##*test-harness-status-}"
+        if is_valid_timestamp "$candidate_ts"; then
+            result=0
+            ts="$candidate_ts"
+        else
+            result=$?
+            die "invalid timestamp [$candidate_ts] in discover_and_validate_ts" "$result"
+        fi
+    else
+        # use 1 for die's $2 b/c shell check complains $? refers to condition not command and failed [ ... ] is always>
+        result=1
+        die "no status_file found, from which to discover timestamp" 1
+    fi
+}
+
+normalize_timestamp() {
+  # if YYYY-MM-DD HH:MM:SS, convert to YYYYMMDD-HH:MM:SS
+  local _nt_candidate_ts="$1" _nt_reply=""
+  case "$1" in
+    # pattern 2: YYYY-MM-DD HH:MM:SS
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+      _nt_reply="${_nt_candidate_ts:0:4}"   #..# year
+      _nt_reply+="${_nt_candidate_ts:5:2}"    # month
+      _nt_reply+="${_nt_candidate_ts:8:2}"    # day
+      _nt_reply+="-"   #......................# delimiter
+      _nt_reply+="${_nt_candidate_ts:11:8}"   # hh:mm:ss
+      printf '%s\n' "$_nt_reply"
+      ;;
+
+    # pattern 1: YYYYMMDD-HH:MM:SS
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+      # allow caller to assign this as global ts
+      printf '%s\n' "$_nt_candidate_ts"
+      ;;
+
+    # does not match either layout shape (bit 0)
+    *) die "Invalid timestamp [$_nt_candidate_ts]" 1 ;;
+  esac
+}
+
+# shell check thinks using script's global status variables are unused
+# shellcheck disable=SC2034
+read_status()
+{   local key="" value=""
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # ensuer status_file exists
+    [ -s "$status_file" ] || return 0
+    # treat the status file as data - do not just source it
+    while IFS='=' read -r key value; do
+        value="${value#\"}"   # ltrim
+        value="${value%\"}"   # rtrim
+        #
+        case "$key" in
+            phase)                 phase="$value" ;;
+            initial_pkglist_count) initial_pkglist_count="$value" ;;
+            pkglist_count)         pkglist_count="$value" ;;
+            prog_start)            prog_start="$value" ;;
+            cur_pkg_name)          cur_pkg_name="$value" ;;
+            cur_pkg_start)         cur_pkg_start="$value" ;;
+            prog_end)              prog_end="$value" ;;
+            *)                     die "invalid assignment in status_file" ;;
+        esac
+    done < "$status_file"
+}
+
+dump_status() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    for x in phase pkglist_count prog_start cur_pkg_name cur_pkg_start; do
+        printf '%s\n' "${x}: ${!x}"
+    done
+}
+

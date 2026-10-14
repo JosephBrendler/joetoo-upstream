@@ -1,0 +1,25 @@
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# README  - summarize role of each .conf file supporting package.env
+#
+# ghostscript-fix.conf - relax selected compiler warnings/errors and disable distcc for ghostscript builds
+#
+# crossbuild-perl-fix.conf --------- override/de-confuse perl compiler/linker flags during cross-builds 
+# j4_makeopts.conf ----------------- limit package build concurrency to MAKEOPTS="-j4"
+# nobin_features.conf -------------- force source builds by disabling getbinpkg and userpriv
+# no_collision-protect.conf -------- disable collision protection for packages that intentionally share files
+# mysql-with-protobuf-bundled.conf - force MySQL to build and use its bundled protobuf implementation
+# lang-en_US-UTF-8.conf ------------ force LANG=en_US.UTF-8 for the selected package
+# nodist_features.conf ------------- force source builds and disable distcc and userpriv for selected packages
+# bind_ldflags.conf ---------------- add BIND build-tree library paths with -Wl,-rpath-link for transitive linking
+# j1_makeopts.conf ----------------- serialize package builds (prohibit parallel) with MAKEOPTS="-j1"
+# linker_assist.conf --------------- add --copy-dt-needed-entries to help resolve transitive linker dependencies
+#
+# tools/test-harness - test all packages that have been accumulated in package.env with nodist_features.conf
+#   to help determine if they are in fact still incompatible with distcc
+#
+# Policy - use each .conf to express a single feature/configuration policy
+# SOP - when muliple policies should be enforced for a given package, include the
+#   package on one line in package.env which lists each .conf above naming a policy
+#   that should be enforced for that package

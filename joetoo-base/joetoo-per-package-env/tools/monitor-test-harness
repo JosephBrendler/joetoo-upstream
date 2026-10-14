@@ -1,0 +1,791 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# monitor-test-harness - monitor progress of test-harness in testing distcc compatibility of packages
+#
+# shellcheck source=/usr/sbin/script_header_joetoo
+
+# 20261011 - moved to tools/test-harness-common-functions
+# dump_fileset()
+# discover_and_validate_ts()
+# normalize_timestamp()
+# read_status()
+# dump_status()
+# 20261011 - moved to script_header_joetoo
+# secs2time()
+# is_valid_timestamp
+
+JOETOO_HEADER_DIR="/usr/sbin"
+# shellcheck source=/usr/sbin/script_header_joetoo
+source /usr/sbin/script_header_joetoo
+
+development_dir="/home/joe/joetoo-upstream/joetoo-base/joetoo-per-package-env/tools"
+# shellcheck source=/home/joe/joetoo-upstream/joetoo-base/joetoo-per-package-env/tools/test-harness-common-functions
+source "${development_dir%/}/test-harness-common-functions"
+
+PN=${0##*/}
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
+
+#----[ variables ]-------------------------------------------------------------------------------\
+declare -A outcome_counts   # associative array indexed on outcome names, to hold its # pkgs in the summary rollup
+declare -A outcome_color
+outcome_counts=()
+outcome_color=()
+
+# terminal outcome colors
+outcome_color[succeeded]="$BGon"
+outcome_color[failed]="$BRon"
+outcome_color[unvalidated]="$BOon"
+outcome_color[excepted]="$BWon"
+outcome_color[blocked]="$BYon"
+# transient outcome colors
+outcome_color[retry]="$BMon"
+outcome_color[prepared]="$BAon"
+
+# consolidate the names of the test-harness outcome arrays in one list
+outcome_list=(
+    succeeded
+    failed
+    unvalidated
+    excepted
+    blocked
+    retry
+    prepared
+)
+
+# assign archive_dir and parent
+archive_parent="/var/lib/joetoo/"
+archive_dir="${archive_parent%/}/test-harness-results-archive"
+
+# overall test run completion pseudo-boolean
+# (status of the test-harness test run, not the monitor program)
+COMPLETE=$FALSE
+
+# mutually exclusive pseudo-booleans for parsing command mode
+WATCH=$FALSE
+VERBOSE=$TRUE
+
+# initialize cleanup pseudo-boolean, target, mode and ts
+CLEANUP=$FALSE
+cleanup_mode=""
+cleanup_target=""
+cleanup_ts=""
+
+# initialize archive pseudo-boolean, target, mode, ts, and filter
+ARCHIVE=$FALSE
+archive_mode=""
+archive_target=""
+archive_ts=""
+archive_filter=""
+
+# placeholder for global status_file assigned below
+status_file=""
+
+#placeholder for global ts and after_ts (timestamps) assigned below
+ts=""
+after_ts=""
+
+# define the monitor display refresh period in seconds
+sleep_wait=5
+
+# define global temp_path for temporary archive, assigned in do_archive below
+temp_path=""
+
+# global elapsed time of the entire test run (all pkgs, all phases)
+run_elapsed=""
+# global elapsed time (in ddd:hh:mm:ss format) of the entire test run (all pkgs, all phases)
+run_elapsed_fmt=""
+
+# _cmd_color ="${BBon}"   # command
+# _var_color ="${BRon}"   # variable (e.g. $var)
+# _quote_color ="${BYon}" # quotation (e.g. "..." or '...'
+# _opt_color ="${BMon}"   # option (e.g. -v)
+# _cmt_color ="${Con}"    # comment
+# _data_color ="${Mon}"   # data (e.g. 0.5)
+# _ctl_color ="${Gon}"    # control keyword (e.g. if, while, do, case ...)
+# _func_color ="${BGon}"  # functions (e.g. myFunction()
+# _op_color ="${Gon}"     # operators (e.g. &&, ||, |, >)
+
+# assemble varlist for show_config
+varlist="PN BUILD verbosity bool.DEBUG BREAK"
+varlist+=" bool.WATCH bool.VERBOSE bool.CLEANUP bool.ARCHIVE"
+varlist+=" rlv.status_file initial_pkglist_count"
+
+
+#----[ functions ]---------------------------------------------------------------------------------
+
+cleanup_archive_temp() {
+    # clean up temp archive - safe to call repeatedly, including from die(), leave(), and EXIT trap
+
+    # return with no action if global temp_path is unset or empty
+    [ -n "${temp_path:-}" ] || return 0
+
+    # if the temporary archive exists, delete it
+    if [ -e "$temp_path" ] || [ -L "$temp_path" ]; then
+        rm -f -- "$temp_path" || return 1
+    fi
+
+    # since the file no longer exists, reset the temp_path variable
+    temp_path=""
+    return 0
+}
+
+usage() # (POSIX) local usage module to extend cli in script_header_joetoo
+{   local msg
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    msg="${BRon}usage${Boff}: ${_func_color}sudo ${_cmd_color}${PN}${Boff} ${_data_color}[-c a|i|<ts>] [-a a|l|<filter>] [-w] [-v]${Boff}"
+    j_msg "-${notice}" -p "$msg"
+    j_msg "-${notice}" -m "${BYon}Options --${Boff}"
+    msg="  ${_data_color}-w${Boff}${Con} ..............:${Boff} ${BCon}set WATCH mode${Boff}"
+    msg+=" (run continuously; summarize)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-v${Boff}${Con} ..............:${Boff} ${BCon}set VERBOSE mode${Boff}"
+    msg+=" (run once; show all data) (${BOon}default${Boff})"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-c a|i|<ts>${Boff}${Con} .....:${Boff} ${BCon}set CLEANUP mode${Boff}"
+    msg+=" (all|interactive|timestamp)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-a a|l|<filter>${Boff}${Con} .:${Boff} ${BCon}set ARCHIVE mode${Boff}"
+    msg+=" (all|latest|<archive_filter>)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-h${Boff}${Con} ..............:${Boff} ${BCon}help${Boff} (show this message)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    j_msg "-${notice}" -m "${BYon}Note --${Boff}"
+    msg="  ${_data_color}-w${Boff}, ${_data_color}-v${Boff}, ${_data_color}-c <arg>${Boff}, and ${_data_color}-a <arg>${Boff}"
+    msg+="${Con} are exclusive; \"last wins\"${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${Yon}cleanup and archive filenames all resemble ${BAon}test-harness-status-20261009-18:55:57${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-c${Boff} ${Con}must be followed by <arg> which can be${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_data_color}a|all${Boff} ${Con}meaning delete everything matching '*test-harness*' template ${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_data_color}i|interactive${Boff} ${Con}meaning clean interactively; confirm each deletion${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_data_color}<timestamp>${Boff} ${Con}meaning delete everything matching template and <timestamp>${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_data_color}<timestamp>${Boff} ${Con}must be in the format"
+    msg+=" ${BAon}YYYYMMDD-HH:MM:SS${Boff} or ${BAon}YYYY-MM-DD HH:MM:SS${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-a${Boff} ${Con}must be followed by <arg> which can be${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_data_color}a|all${Boff} ${Con}meaning archive everything matching '*test-harness*' template ${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_data_color}l|latest${Boff} ${Con}meaning archive everything matching the latest timestamp${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_data_color}<filter>${Boff} ${Con}meaning archive files matching <filter>, which can be --${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="      ${Con}like \"<timestamp>\" meaning archive all matching timestamp, or${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="      ${Con}like \"<pattern>-<timestamp>\" lets you archive one file matching <pattern>-<timestamp>${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="      ${Con}(but it can match several ${Boff}(recocmmended to use e.g. \"status\" for such one-file pattern)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="      ${Yon}n.b. filter must always include a complete <timestamp> in one of the forms above${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${_func_color}${PN} ${BRon}must be run by root${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${BRon}users needing archive access must be in the"
+    msg+=" ${BMon}wheel${BRon} group${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    j_msg "-${notice}" -pm ""  # severity-sensitive newline
+}
+
+get_ts_and_confirm_fileset() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local -a find_args=()
+    local candidate_ts="" ts_fmt=""
+    local file_seconds="" now="" file_elapsed="" file_elapsed_fmt=""
+    local msg=""
+    status_file=""   #initialize
+    # identify the most recent status file
+    # find files matching template; print path (%p)
+    # build find_args in an array in order to comment/explain each
+    find_args=( /tmp/ -mindepth 1 -maxdepth 1 )   #........# look inside the /tmp/ dir only, not at it or subdirs
+    find_args+=( -type f -name 'test-harness-status-*' )   # filter for files with name matching template
+    find_args+=( ! -name '*.tmp' )   #.....................# exclude .tmp files to avoid accicental selection
+    find_args+=( -printf '%p\n' )   #......................# print path (date-sortable b/c ts in in filename)
+    # pipe find output through filters - sort reverse and keep first only
+    # guard against file not found or found but testing hasnt put anything in it yet
+    # ( -s tests size > 0; if file not found, then "$status_file"  = "" and -s fails
+    while true; do
+        status_file=$( find "${find_args[@]}" | sort -r | head -n 1 );
+        if [[ -n "$status_file" ]] ; then
+            candidate_ts="${status_file##*test-harness-status-}"
+            # if waiting for a newer status_file, reject anything at or before the assigned cutoff
+            if [[ -n "$after_ts" && ! "$candidate_ts" > "$after_ts" ]]; then
+                status_file=""
+            fi
+        fi
+
+        if [[ ! -s "$status_file" ]]; then
+            if [[ -z "$status_file" ]]; then
+                j_msg "-${warn}" -p -n "Waiting for a test-harness status_file"
+                printf '\r'   # return to beginning of line (not next)
+            else
+                j_msg "-${warn}" -p -n "Waiting for status_file to be populated"
+                printf '\r'   # return to beginning of line (not next)
+            fi
+            sleep "$sleep_wait"
+            continue   # loop again; wait for -s (exists and size > 0)
+        else
+            break   # exit loop; newer, non-empty status file found
+        fi
+    done
+    printf '\n'
+    # read the and set the global timestamp from the suffix of status_file
+#    ts="${status_file##*test-harness-status-}"
+    ts="$candidate_ts"
+    # ensure the entire set of files needed for monitoring exists
+    for x in status pkglist "${outcome_list[@]}"; do
+        file="/tmp/test-harness-${x}-${ts}"
+        # use 1 for die's $2 b/c shell check complains $? refers to condition not command and failed [ ... ] is always 1
+        [ -f "$file" ] || die "Missing test-harness file [$file]" 1
+    done
+
+    # confirm_fileset
+    # reformat the timestamp in machine-readable YYYY-MM-DD HH:MM:SS format
+    ts_fmt="${ts:0:4}-${ts:4:2}-${ts:6:2} ${ts##*-}"
+    # convert reformatted timestamp to seconds since beginning of epoch (1970-01-01 00:00 UTC)
+    file_seconds="$(date -d "$ts_fmt" +%s)"
+    # calculate the age of the fileset as indicated by the status_file timestamp
+    now="$(date +%s)"
+    file_elapsed="$(( now- file_seconds ))"
+    file_elapsed_fmt="$(secs2time "$file_elapsed")"
+    response=""
+    msg="${BCon}Discovered status_file with timestamp: ${BBon}[${BMon}$ts_fmt${BBon}]${Boff}"
+    j_msg "-${warn}" -p "$msg"
+    msg="${BYon}Note: this is [$file_elapsed_fmt] DDD:HH:MM:SS old${Boff}"
+    j_msg "-${warn}" -p "$msg"
+    msg="${BWon}Wait for newer (y), proceed (s), or abort (n)?${Boff}"
+    yns_prompt "$msg"
+    # yns_prompt sets global $response
+}
+
+parse_cmdline()
+{   local msg="" opt="" filter_prefix=""
+    local OPTIND=1   # reset OPTIND
+    # define date-part strings from digit character class
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
+    # see getopts --help and man getopts
+    #  leading : places getopts into silent error reporting mode
+    # I want three cleanup options
+    # -c <timestamp> = delete all matching <timestamp>
+    # -c a[ll] = delete all
+    # -c i[nteractive] = delete interactive
+    # safer than offering delete interactive as just -c, b/c getopts does not support "optional" options
+    while getopts ":a:c:wvh" opt; do
+        case "$opt" in
+            a) ARCHIVE=$TRUE; CLEANUP=$FALSE; WATCH=$FALSE; VERBOSE=$FALSE; archive_target="$OPTARG" ;;
+            c) ARCHIVE=$FALSE; CLEANUP=$TRUE; WATCH=$FALSE; VERBOSE=$FALSE; cleanup_target="$OPTARG" ;;
+            w) ARCHIVE=$FALSE; CLEANUP=$FALSE; WATCH=$TRUE; VERBOSE=$FALSE
+               j_msg "-${debug}" -p "set VERBOSE: [ $(status_color "$VERBOSE")$(TrueFalse "$VERBOSE") ${Boff}]";;
+            v) ARCHIVE=$FALSE; CLEANUP=$FALSE; WATCH=$FALSE; VERBOSE=$TRUE
+               j_msg "-${debug}" -p "set WATCH: [ $(status_color "$WATCH")$(TrueFalse "$WATCH") ${Boff}]";;
+            h) usage; exit 0 ;;
+            :) die "Option [-$OPTARG] requires an argument" 1 ;;
+           \?) die "Invalid option [-$OPTARG]" 1 ;;
+        esac
+    done
+    # of $1 is --, getopts leaves OPTIND = 2 and returns non-zero, loop exits and shift 1 removes it
+    shift $(( OPTIND - 1 ))
+    # there should not be anything left on cmdline
+    # use 1 for die's $2 b/c shell check complains $? refers to condition not command and failed [ ... ] is always 1
+    [ "$#" -eq 0 ] || die "Unexpected positional argument(s): [$*]" 1
+    # dispatch archive according to which mode is set
+    if [ "$ARCHIVE" ]; then
+        j_msg "-${debug}" -p "running $PN is ARCHIVE  mode"
+        case "$archive_target" in
+            a|all        ) archive_mode="all" ;;   #.......# delete matching template
+            l|latest     )
+                archive_mode="latest"    #.................# delete matching template
+                # discover latest timestamp
+                discover_and_validate_ts || die "failed to discover_and_validate_ts" 1
+                ;;
+            *            )
+                archive_mode="filter"
+                archive_filter="$archive_target"
+                j_msg "-${debug}" -p "archive_mode: $archive_mode"
+                j_msg "-${debug}" -p "archive_filter: $archive_filter"
+
+                # archive_filter has the form: <string>-<timestamp>
+                # timestamps has the form: "YYYMMMDDD-HH:MM:SS" or "YYYY-MM-DD HH:MM:SS"
+                # to accept either, extract and validate at the same time, normalize if needed
+                case "$archive_filter" in
+                    # pattern 1: *-YYYYMMDD-HH:MM:SS (17 characters at the end)
+                    *[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+                        archive_ts="${archive_filter: -17}"
+                        is_valid_timestamp "$archive_ts" || die "invalid timestamp [$archive_ts] in archive mode filter" $?
+                        ;;
+                    # pattern 2: YYYY-MM-DD HH:MM:SS
+                    *[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+                        archive_ts="${archive_filter: -19}"   #  ts of this validated form is last 19 chars
+                        is_valid_timestamp "$archive_ts" || die "invalid timestamp [$archive_ts] in archive mode" $?
+                        filter_prefix="${archive_filter%"${archive_ts}"}"  # strip ts from suffix, leaving prefix
+                        archive_ts=$(normalize_timestamp "$archive_ts")  # convert to YYYYMMDD-HH:MM:SS
+                        archive_filter="${filter_prefix}${archive_ts}"   # prepend prefix to the new ts to make new archive_filter
+                        j_msg "-${debug}" -p "new archive_filter: $archive_filter"
+                        ;;
+                    *)
+                        die "Invalid archive target [$archive_target]" 1 ;;
+                esac
+            ;;
+        esac
+    # dispatch cleanup according to which mode is set
+    elif [ "$CLEANUP" ]; then
+        j_msg "-${debug}" -p "running $PN is CLEANUP  mode"
+        case "$cleanup_target" in
+            a|all        ) cleanup_mode="all" ;;   #.......# delete matching template
+            i|interactive) cleanup_mode="interactive" ;;   # delete interactively
+            *            )
+                if is_valid_timestamp "$cleanup_target"; then
+                    cleanup_mode="timestamp"   #...........# delete matching both template and timestamp
+                    cleanup_ts="$cleanup_target"   #.......# in this mode cmdline arg is the timestamp
+                    cleanup_ts=$(normalize_timestamp "$cleanup_ts")  # if YYYY-MM-DD HH:MM:SS, convert to YYYYMMDD-HH:MM:SS
+                else
+                    die "Invalid cleanup target [$cleanup_target]" 1
+                fi
+            ;;
+        esac
+    elif [ "$VERBOSE" ]; then
+        j_msg "-${debug}" -p "running $PN is VERBOSE (one-shot) mode"
+    elif [ "$WATCH" ]; then
+        j_msg "-${debug}" -p "running $PN is WATCH  mode"
+    else
+        die "unknown error: no valid mode set" 1
+    fi
+    j_msg "-${debug}" -p "WATCH: [ $(status_color "$WATCH")$(TrueFalse "$WATCH") ${Boff}]"
+    j_msg "-${debug}" -p "VERBOSE: [ $(status_color "$VERBOSE")$(TrueFalse "$VERBOSE") ${Boff}]"
+    j_msg "-${debug}" -p "CLEANUP: [ $(status_color "$CLEANUP")$(TrueFalse "$CLEANUP") ${Boff}]"
+    j_msg "-${debug}" -p "ARCHIVE: [ $(status_color "$ARCHIVE")$(TrueFalse "$ARCHIVE") ${Boff}]"
+}
+
+monitor_test()
+{   local msg="" part_sum="" sum="" p_sum="" pkg_elapsed="" now="" pkg_elapsed_fmt=""
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # calculate the current time once, use many places below
+    now=$(date +%s)
+    # (re)initialize and refresh global status data
+    phase=""
+    initial_pkglist_count=""
+    pkglist_count=""
+    prog_start=""
+    cur_pkg_name=""
+    cur_pkg_start=""
+    prog_end=""
+    # reset global time variables
+    run_elapsed=""
+    run_elapsed_fmt="unavailable"
+    # read the status file
+    read_status || die "failed to read_status" $?
+    separator "$(hostname) ${PN}-${BUILD}" "(results as of $(timestamp))"
+    printf '\n'
+    if isint "${initial_pkglist_count}"; then
+        j_msg "-${notice}" -p "${BYon}Total pkgs in this run: ${BBon}[${BMon}${initial_pkglist_count}${BBon}]${Boff}"
+    else
+        j_msg "-${err}" -p "${BRon}initial_pkglist_count [$initial_pkglist_count] is not an integer${Boff}"
+    fi
+    if isint "$phase"; then
+        # integer phase guards these elapsed time calculations
+        j_msg "-${notice}" -m "${BYon}Current Phase: ${BBon}[${BMon}${phase}${BBon}]${Boff}"
+        # if complete, calculate elapsed time of the entire run
+        if (( phase == 99 )); then
+            # record COMPLETE, but continue the run so we can exit after displaying rollup
+            COMPLETE=$TRUE
+            # if they are integers, calculate total elapsed of the completed entire run using prog_start, prog_end
+            if isint "$prog_start" && isint "$prog_end" &&
+               (( prog_end >= prog_start )); then
+                run_elapsed=$(( prog_end - prog_start ))
+                run_elapsed_fmt=$(secs2time "$run_elapsed")
+            # else calculate total elapsed of the completed entire run using prog_start, current time
+            else
+                run_elapsed_fmt="unavailable"
+            fi
+        # else calculate total elapsed of the completed entire run using prog_start, current time
+        else
+            # actuve run - calculate elapsed time since program start
+            if isint "$prog_start" && (( now >= prog_start )); then
+                run_elapsed=$(( now - prog_start ))
+                run_elapsed_fmt=$(secs2time "$run_elapsed")
+            else
+                run_elapsed_fmt="unavailable"
+            fi
+        fi
+    else
+        j_msg "-${err}" -p "${BRon}phase [$phase] is not an integer${Boff}"
+    fi
+    if isint "$pkglist_count"; then
+        j_msg "-${notice}" -m "${BYon}Total pkgs in current pkglist: ${BBon}[${BMon}${pkglist_count}${BBon}]${Boff}"
+    else
+        j_msg "-${err}" -p "${BRon}pkglist_count [$pkglist_count] is not an integer${Boff}"
+    fi
+    printf '\n'
+    # if not idle (cur_pkg_name is populated), and cur_pkg_start is integer earlier than current time, then
+    if [ -n "$cur_pkg_name" ] && isint "$cur_pkg_start" && (( now >= cur_pkg_start )); then
+        # calculate elapsed time for the current package
+        pkg_elapsed=$(( now - cur_pkg_start ))
+        pkg_elapsed_fmt=$(secs2time "$pkg_elapsed")
+        j_msg "-${notice}" -m "${BYon}Current package: ${BBon}[${BMon}${cur_pkg_name}${BBon}]${Boff}"
+        j_msg "-${notice}" -m "${BYon}Elapsed time for current package: ${BBon}[${BMon}${pkg_elapsed_fmt}${BBon}]${Boff}"
+    # else if idle, say so
+    else
+        j_msg "-${notice}" -m "${BYon}Current package: ${BBon}[${BOon} ... idle ... ${BBon}]${Boff}"
+        j_msg "-${notice}" -m "${BYon}Elapsed time for current package: ${BBon}[${BOon} ... idle ... ${BBon}]${Boff}"
+    fi
+    for x in "${outcome_list[@]}"; do
+        # identify the output file for this x by concatenating template, x and timestamp
+        file="/tmp/test-harness-${x}-${ts}"
+        [ "$VERBOSE" ] && printf '\n'
+        [ "$VERBOSE" ] && printf '%s\n' "$file"
+        [ "$VERBOSE" ] && printf '%s\n' "${BCon}$(full_repeat "$bin_uH_heavy" ${#file})${Boff}"
+        part_sum=$(wc -l < "$file")
+        outcome_counts[$x]="$part_sum"
+        [ "$VERBOSE" ] && cat "$file"
+        j_msg "-${notice}" -p "${outcome_color[$x]}$x${Boff}:${BBon} [${outcome_color[$x]}$part_sum${BBon}]${Boff}"
+    done
+
+    j_msg "-${debug}" -p "(debug) dump outcome_counts array"
+    # shell check says things dont expand in '...' but doesnt get that in d_do that is the whole point
+    # shellcheck disable=SC2016
+    d_do 'printf "%s\n" "${!outcome_counts[@]}"' "$debug"
+    sum=0
+    for x in "${outcome_list[@]}"; do
+        p_sum="${outcome_counts[$x]}"
+        sum=$(( sum + p_sum ))
+    done
+    printf '\n'; j_msg "-${notice}" -m "${BCon}Cumulative sum: ${BBon}[${BMon}${sum}${BBon}]${Boff}"
+    printf '\n'; j_msg "-${notice}" -m "${BBon}Remaining: ${BBon}[${BMon}$(( initial_pkglist_count - sum ))${BBon}]${Boff}"
+    msg="${BBon}Total elapsed time for this run: ${BBon}[${BMon}${run_elapsed_fmt}${BBon}]${Boff} [ddd:hh:mm:ss]"
+    printf '\n'; j_msg "-${notice}" -m "$msg"
+
+}
+
+do_archive() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # archive disptatcher
+    local result=0
+    local _da_mode="$1" _da_filter="$2" _da_old_dir=""
+    local msg="" tarball_pathname="" rand_str=""
+    local tar_out="" find_out=""
+    local archive_owner="" archive_perms=""
+    local -a archive_list
+    local -a find_args=( /tmp/ -mindepth 1 -maxdepth 1 -type f )
+    local OVERWRITE=$FALSE
+    case "${_da_mode:0:1}" in
+        a) find_args+=( -name "test-harness-*" )
+           tarball_pathname="${archive_dir%/}/test-harness-all.tbz2" ;;
+        l) find_args+=( -name "test-harness-*${ts}" )
+           tarball_pathname="${archive_dir%/}/test-harness-${ts}.tbz2" ;;
+        *) find_args+=( -name "test-harness*$_da_filter" )  # must incl ts and filenames end ts, so trailing * not needed
+           tarball_pathname="${archive_dir%/}/test-harness-${_da_filter}.tbz2"
+ ;;
+    esac
+    find_args+=( ! -name '*.tmp' )   # exclude the temporary status file
+    find_args+=( -printf '%P\n' )     # print path relative to search start  - /tmp/
+
+#    j_msg "-${debug}" -p "dumping find_args[] ..."
+#    printf '    %s\n' "${find_args[@]}"
+
+    # map the selected file set into an array
+    j_msg "-${notice}" -p "Assembling archive_list"
+    # read list of files that match archive mode filter
+    j_msg "-${notice}" -p "Reading archive_list - files that match archive_mode [$_da_mode]"
+    if mapfile -t archive_list < <( find "${find_args[@]}" ) ; then result=0; else result=$?; fi
+    # wait "$!" waits for completion and gets exit status of most recently launched process
+    wait "$!" || die "find failed while assembling archive_list" $?
+    handle_result "$result" "Ingested [${#archive_list[@]}]" "" "$notice" || die "failed to read archive_list" $?
+    if [ "${#archive_list[@]}" -eq 0 ]; then
+        die "No files found matching archive mode [$_da_mode]" 1
+    fi
+
+    # prepare to build tarball
+    j_msg "-${warn}" -p "${BYon}Preparing to build tarball with the following files --${Boff}"
+    printf '%s\n' "${archive_list[@]}" | sed 's|^|    |'   # indent 4 (2 sp plus 2-char unicode)
+    confirm_continue_or_exit
+
+    # probably over-defensive, but just for assurance,
+    # ensure the global archive_parent exists (provision if absent)
+    # (do not change ownership or permissions if it already exists)
+    if [ ! -d "$archive_parent" ]; then
+        j_msg "-${notice}" -p -n "provisioning [$archive_parent] as root:root 0755"
+        if install -d -o root -g root -m 0755 -- "$archive_parent"; then result=0; else result=$?; fi
+        handle_result "$result" "" "" "$notice" ||
+            die "failed to provision archive parent [$archive_parent]" "$?"
+    fi
+
+    # ensure archive directory exists with intended ownership and permissions
+    # install --help | grep -A1 -E "${W0}-d,|${W0}-o,|${W0}-g,|${W0}-m"
+    #  -d, --directory   - treat all arguments as directory names
+    #  -o, --owner=OWNER - set ownership (super-user only)
+    #  -g, --group=GROUP - set group ownership
+    #  -m, --mode=MODE   - set permission mode (as in chmod)
+    j_msg "-${notice}" -p -n "ensuring archive directory [root:wheel 0750]"
+    if install -d -o root -g wheel -m 0750 -- "$archive_dir"; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" ||
+        die "failed to provision archive directory [$archive_dir]" "$?"
+    # directory missing	-> creates it
+    # directory exists, incorrect ownership	-> corrects ownership
+    # directory exists, incorrect permissions - > corrects permissions
+    # directory already correct -> leaves as is
+
+    # guard against pre-existing archive of the same name
+    if [ -e "$tarball_pathname" ]; then
+        # use bash $RANDOM [https://www.gnu.org/software/bash/manual/html_node/Bash-Variables.html]
+        # (expands to a random integer between 0 and 32767) - printf -v rand_str assigns it directly
+        printf -v rand_str '%04x%04x' "$RANDOM" "$RANDOM"
+        j_msg "-${warn}" -p "${BYon}Warning: specified output file [$tarball_pathname] already exists${Boff}"
+        msg="${Con}Write \"versioned\" ${BBon}[${BMon}${tarball_pathname/\.tbz2/\.${rand_str}.tbz2}${BBon}]${Boff}"
+        msg+=" ${Con}instead?${Boff}"
+        j_msg "-${warn}" -p "$msg"
+        response=""
+        yns_prompt "${BWon}y: yes; s: overwrite; n: abort and exit"
+        case "${response:0:1}" in
+            [yY]) tarball_pathname="${tarball_pathname/\.tbz2/\.${rand_str}.tbz2}" ;;
+            [nN]) leave "aborting as requested" ;;
+            [sS]) OVERWRITE=$TRUE ;;   # overwrite
+            *   ) die "invalid response to versioned archive prompt" 1 ;;
+        esac
+    fi
+    # assign a temporary path at whioh to make the tarball - later mv to tarball_pathname
+    # (do this in $archive_dir so mv can be an atomic write within one block device backed fs)
+    temp_path="$(mktemp "${archive_dir%/}/.${PN}-tarball.XXXXXXXXXX.tbz2")" ||
+        die "failed to create temporary archive file"
+    # generate tarball at temp_path (it is long; just show basename in j_msg)
+    j_msg "-${notice}" -p -n "generating tarball at temp_path [${temp_path##*/}]"
+    if tar -C /tmp -cjpf "$temp_path" "${archive_list[@]}" ; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || die "failed to gemerate tarball" $?
+    # verify temporary archive - check tar's exit status, bzip2 integrity and archived member names
+    j_msg "-${notice}" -p -n "checking temp tarball integrity"
+    # bzip2 --help -->   -t --test - test compressed file integrity
+    if bzip2 -t "$temp_path"; then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || die "archive [$temp_path] failed integrity check" $?
+    # verify content by comparing result to original
+    # tar --help | grep -E ' \-C,| \-d,| \-j,| \-f,'  2>/dev/null
+    #  -d, --diff, --compare      find differences between archive and file system
+    #  -C, --directory=DIR        change to directory DIR
+    #  -f, --file=ARCHIVE         use archive file or device ARCHIVE
+    #  -j, --bzip2                filter the archive through bzip2
+    j_msg "-${notice}" -p -n "checking temp tarball content vs original"
+    if tar -C /tmp -djf "$temp_path";then result=0; else result=$?; fi
+    handle_result "$result" "" "" "$notice" || die "archive [$temp_path] failed tar -C comparison" $?
+    # compare archive member names
+    j_msg "-${notice}" -p -n "checking temp archive member names vs array"
+    find_out="$(printf '%s\n' "${archive_list[@]}")" || die "failed to generate find output for comparison" $?
+    tar_out="$(tar -tjf "$temp_path")" || die "failed to generate tar output for comparison" $?
+    # use 'else result=1' b/c shell check complains $? 'refers to a condition, not a command'
+    # (failed [[ A == B ]] always make $?=1, but is exactly what I want to 'collect' for else, so just set it)
+    if [[ "$tar_out" == "$find_out" ]]; then result=0; else result=1; fi
+    handle_result "$result" "" "" "$notice" || die "archive [$temp_path] failed membername comparison" $?
+
+    # set proper permission on termporary archive, to convey to final archive with mv/ln
+    j_msg "-${notice}" -p -n "assigning ownership of temp archive"
+    if chown root:wheel -- "$temp_path"; then result=0; else result=$?; fi
+    archive_owner="$(stat -c '%U:%G' "$temp_path")" || die "failed to get archive owner"
+    handle_result "$result" "$archive_owner" "$archive_owner" "$notice" ||
+        die "failed to set archive ownership [$temp_path]" "$?"
+    j_msg "-${notice}" -p -n "assigning permissions for temp archive"
+    if chmod 0640 -- "$temp_path" ; then result=0; else result=$?; fi
+    archive_perms="$(stat -c '%04a' "$temp_path")" || die "failed to get archive perms"
+    handle_result "$result" "$archive_perms" "$archive_perms" "$notice" ||
+        die "failed to set archive permissions [$temp_path]" "$?"
+
+    # atomic mv to write actual destination file (as chosen in case above)
+    if [ "$OVERWRITE" ]; then
+        j_msg "-${notice}" -p -n "writing tarball to [$tarball_pathname] with mv -fT"
+        # mv --help 2>&1 | grep -E "${W0}-f,|${W0}-T,"
+        #  -f, --force
+        #  -T, --no-target-directory
+        if mv -f -T "$temp_path" "$tarball_pathname"; then
+            result=0
+            cleanup_archive_temp || die "failed to remove temporary archive name" $?
+        else result=$?; fi
+        handle_result "$result" "" "" "$notice" || die "failed to write tarball with mv -fT" $?
+    else
+        j_msg "-${notice}" -p -n "writing tarball to [$tarball_pathname] with ln -T"
+        # use ln -T (--no-target-directory) instead of mv -fT
+        #   because it will auto fail to create a hard link if the file already exists
+        # (note a hard link IS a file (directory entry mapping the filename to its inode)
+        if ln -T -- "$temp_path" "$tarball_pathname"; then
+            result=0
+            cleanup_archive_temp || die "failed to remove temporary archive name" $?
+        else result=$?; fi
+        handle_result "$result" "" "" "$notice" || die "failed to write tarball with ln -T" $?
+    fi
+    return 0
+}
+
+do_clean() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # cleanup disptatcher
+    local result=0
+    local _dc_mode="$1" _dc_ts="$2"
+    local -a cleanup_list
+    local -a find_args=( /tmp/ -mindepth 1 -maxdepth 1 -type f )
+    case "${_dc_mode:0:1}" in
+        i) interactive_cleanup ; return $? ;;   # exit propagating status when done; do not fall through
+        a) find_args+=( -name "test-harness-*" ) ;;
+        *) find_args+=( -name "test-harness-*-${_dc_ts}*" ) ;;
+    esac
+    # map the selected file set into an array
+    j_msg "-${notice}" -p "Assembling cleanup_list"
+    # read list of files that match cleanup mode filter
+    j_msg "-${notice}" -p -n "Reading cleanup_list - files that match cleanup_mode [$_dc_mode]"
+    if mapfile -t cleanup_list < <( find "${find_args[@]}" ); then result=0; else result=$?; fi
+    handle_result "$result" "Ingested [${#cleanup_list[@]}]" "" "$notice" || die "failed to read cleanup_list" $?
+    if [ "${#cleanup_list[@]}" -eq 0 ]; then
+        j_msg "-${err}" -p "No files found matching cleanup mode [$_dc_mode]"
+        return 1   # early return if no files found, do no run rm -f ...
+    fi
+    # Danger Will Robinson
+    j_msg "-${warn}" -p "${BYon}Preparing to delete the following files --${Boff}"
+    printf '%s\n' "${cleanup_list[@]}" | sed 's|^|    |'   # indent 4 (2 sp plus 2-char unicode)
+    confirm_continue_or_exit
+    j_msg "-${notice}" -p -n "Deleting ..."
+    if rm -f -- "${cleanup_list[@]}"; then result=0; else result=$? ; fi
+    handle_result "$result" "" "" "$notice" || return $?
+    return 0
+}
+
+interactive_cleanup() {
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    local result=0 file=""
+    local -a find_args=()
+    local -a cleanup_list
+    # build find_args
+    find_args=( /tmp/ -mindepth 1 -maxdepth 1 -type f )   # files inside /tmp/, not the dir nor subdirs & their content
+    find_args+=( -name '*test-harness-*' )   #............# filter for files matching template
+    # read list of files that match template
+    j_msg "-${notice}" -p "Reading cleanup_list - files that match test-harness- template"
+    if mapfile -t cleanup_list < <( find "${find_args[@]}" ); then result=0; else result=$?; fi
+    handle_result "$result" "Ingested [${#cleanup_list[@]}]" "" "$notice" || die "failed to read cleanup_list" $?
+    # iterate through list and get disposition from user
+    for file in "${cleanup_list[@]}"; do
+        response=""
+        j_msg "-${notice}" -p "${BCon}Considering file ${BBon}[${BMon}$file${BBon}]${Boff}"
+        yns_prompt "${BWon}Delete? y: yes; s: skip; n: abort and exit${Boff}"
+        case "${response:0:1}" in
+            [yY])
+                j_msg "-${notice}" -p "Deleting [$file]"
+                if rm -f "$file"; then result=0; else result=$?; fi
+                handle_result "$result" "" "" "$notice"  # dont die over this (just use handle result "X")
+                ;;
+            [sS]) continue ;;  # skip = go to next file
+            [nN]) leave "Aborting as instructed" ;;
+            *   ) die "invalid response to wait for status_file prompt" 1
+        esac
+    done
+}
+
+_strip_0()  # (POSIX) strip "0" chars from the left
+{ s0_ret=0
+  isint "$1" || return 1
+  # guard - dont convert "0" to ""
+  [ "$1" = "0" ] && { printf '%s\n' "0"; return 0 ; }
+  _num="$1"
+  # if trying to strip 0 from prefix of _num produces _num, then there is no 0 to strip
+  while [ "${_num#0}" != "$_num" ] && [ "$_num" != "0" ]; do
+    _num="${_num#0}"
+  done
+  printf '%s\n' "$_num" || s0_ret=3
+  unset -v _num
+  return "$s0_ret"
+}
+# @usage _strip_0 <string>
+# @args string: the numeric or text string containing potential leading zeros
+# @ret 0: success (printed stripped string or original "0")
+# @ret 1: failure (input was not a valid integer via isint)
+# @ret 3: failure (printf error during evaluation)
+# @deps isint()
+# @rule guards against turning a lone "0" into an empty string ""
+# @note Uses a POSIX-compliant while loop pattern match to strip leading zeros
+# @append one by one without relying on non-standard bash extglob utilities
+
+posix_istimestamp_shape()   # (POSIX) validate string as timestamp
+{ case "$1" in
+    # pattern 1: YYYYMMDD-HH:MM:SS
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+      return 0 ;;
+    # pattern 2: YYYY-MM-DD HH:MM:SS
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9])
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+bash_istimestamp() {
+    # accept as timestamp if matching either "YYYYMMDD-HH:MM:SS" or "YYYY-MM-DD HH:MM:SS"
+    pattern1='^[0-9]{8}-[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+    pattern2='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'
+    if [[ "$1" =~ $pattern1 ]]; then return 0
+    elif [[ "$1" =~  $pattern2 ]]; then return 0
+    else return 1; fi
+}
+
+#----[ main script ]-------------------------------------------------------------------------------
+checkroot
+
+parse_cmdline "$@"
+
+# register cleanup_archive_temp to let die, leave take care of cleanup
+register_cleanup_hook cleanup_archive_temp ||
+    die "failed to register archive cleanup hook" $?
+# set trap for EXIT so cleanup_archive_temp also handles un-anticipated exits
+trap cleanup_archive_temp EXIT
+
+# CLEANUP, ARCHIVE, WATCH, and VERBOSE are mutually exclusive
+# for CLEANUP and ARCHIVE, exit after running their dispatcher (do nothing else)
+if [ "$CLEANUP" ]; then
+    j_msg "-${debug}" -p "calling do_clean with args [$cleanup_mode] [$cleanup_ts]"
+    if do_clean "$cleanup_mode" "$cleanup_ts"; then exit 0; else die "failed to do_clean" $? ; fi
+elif [ "$ARCHIVE" ]; then
+    j_msg "-${debug}" -p "calling do_archive with args [$archive_mode] [$archive_filter]"
+    if do_archive "$archive_mode" "$archive_filter"; then exit 0; else die "failed to do_archive" $? ; fi
+fi
+
+# main fileset selection - loop until a fileset is available to monitor
+while true; do
+    response=""
+    get_ts_and_confirm_fileset   # note: waits for status_file (newer than ts if so instructed)
+    case "$response" in
+        [sS]) break ;;  # skip = go ahead with current file set
+        [yY]) after_ts="$ts" ;;
+        [nN]) leave "Aborting as instructed" ;;
+        *   ) die "invalid response to wait for status_file prompt" 1
+    esac
+done
+read_status || die "failed to read_status" $?
+d_do dump_status "$debug"
+
+show_config
+confirm_continue_or_exit
+
+j_msg "-${debug}" -p "in main script about to choose branch by mode"
+
+# monitor_test sets COMPLETE=$TRUE when it reads phase=99 from the status file
+# that is used hear to signal -w mode to break from the loop, and it
+# enables selection of the appropriate final display message
+if [ "$WATCH" ]; then
+    while true; do
+        clear
+        outcome_counts=()   # (re)initialize
+        monitor_test; [ "$COMPLETE" ] && break
+        printf '\n'
+        j_msg "-${notice}" -mp "(CTRL-C to exit)"
+        sleep "$sleep_wait"
+    done
+elif [ "$VERBOSE" ] ; then
+    outcome_counts=()   # (re)initialize
+    monitor_test
+else
+    die "no valid CLEANUP, ARCHIVE, WATCH, or VERBOSE mode specified" 1
+fi
+if [ "$COMPLETE" ]; then
+    j_msg "-${notice}" -p "${BWon}Test run is ${BGon}complete${Boff}"
+else
+    j_msg "-${warn}" -p "${BWon}Exiting, but test run is ${BRon}not complete${Boff}"
+fi

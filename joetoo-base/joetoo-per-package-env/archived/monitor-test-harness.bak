@@ -1,0 +1,196 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# monitor-test-harness - monitor progress of test-harness in testing distcc compatibility of packages
+#
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
+
+#----[ variables ]-------------------------------------------------------------------------------\
+declare -a pkgs
+declare -A parts
+declare -A part_color
+pkgs=()
+parts=()
+part_color[succeeded]="$BGon"
+part_color[failed]="$BRon"
+part_color[unvalidated]="$BOon"
+part_color[excepted]="$BMon"
+part_color[retry]="$BYon"
+
+pkg_env_dir="/home/joe/joetoo-upstream/joetoo-base/joetoo-per-package-env"
+pkg_env_file="${pkg_env_dir%/}/package.env"
+j_msg "-${debug}" -p "pkg_env_file: [$pkg_env_file]"
+
+# count the total number of applicable packages (set FEATURES="-distcc")
+total=$(
+    grep -E 'nodist_features|ghostscript-fix' "$pkg_env_file" |
+    awk '{print $1}' |
+    wc -l
+)
+no_dupes_total=$(
+    grep -E 'nodist_features|ghostscript-fix' "$pkg_env_file" |
+    awk '{print $1}' |
+    sort -u |
+    wc -l
+)
+j_msg "-${debug}" -p "total: [$total]   no_dupes_total: [$no_dupes_total]"
+
+# warn about dupes if needed
+if (( total != no_dupes_total )); then
+    msg="package.env evidently contains duplicate pkgs total: [$total]; unique: [$no_dupes_total]"
+    j_msg "-${warn}" -p "$msg"
+    # read packages array the same way that the test-harness does
+    # (filtering lines that enforce FEATURES="-distcc")
+    readarray -t pkgs < <( grep -E 'nodist_features|ghostscript-fix' "$pkg_env_file" | awk '{print $1}' )
+    for pkg in "${pkgs[@]}"; do
+        j_msg "-${debug}" -p "condidering pkg: [$pkg]"
+        # grep --help | grep -E ' \-F| \-x| \-c' 2>/dev/null
+        #   -F, --fixed-strings - PATTERNS are strings
+        #   -x, --line-regexp   - match only whole lines
+        #   -c, --count         - print only a count of selected lines per FILE
+        pkg_count=$(printf '%s\n' "${pkgs[@]}" | grep -Fxc "$pkg")
+        if (( pkg_count > 1 )); then
+            j_msg "-${warn}" -p "pkg [$pkg] count: [$pkg_count]"
+        fi
+    done
+fi
+
+# mutually exclusive pseudo-booleans for parsing command mode
+WATCH=$FALSE
+VERBOSE=$TRUE
+
+# _cmd_color ="${BBon}"   # command
+# _var_color ="${BRon}"   # variable (e.g. $var)
+# _quote_color ="${BYon}" # quotation (e.g. "..." or '...'
+# _opt_color ="${BMon}"   # option (e.g. -v)
+# _cmt_color ="${Con}"    # comment
+# _data_color ="${Mon}"   # data (e.g. 0.5)
+# _ctl_color ="${Gon}"    # control keyword (e.g. if, while, do, case ...)
+# _func_color ="${BGon}"  # functions (e.g. myFunction()
+# _op_color ="${Gon}"     # operators (e.g. &&, ||, |, >)
+
+#----[ functions ]---------------------------------------------------------------------------------
+usage() # (POSIX) local usage module to extend cli in script_header_joetoo
+{   local msg
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    j_msg "-${notice}" -p "${BRon}usage${Boff}: ${_cmd_color}${PN}${Boff} ${_data_color}[-w] [-v]${Boff}"
+    j_msg "-${notice}" -m "${BYon}Options --${Boff}"
+    msg="  ${_data_color}-w${Boff}${Con} ...:${Boff} set WATCH mode (run continuously; summarize)${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-v${Boff}${Con} ...:${Boff} set VERBOSE mode (run once; show all data) (${BOon}default${Boff})"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-h${Boff}${Con} ...:${Boff} (help; show this message)${Boff}"
+    j_msg "-${notice}" -m "${BYon}Note --${Boff}"
+    msg="  ${_var_color}\$WATCH${Boff} and ${_var_color}\$VERBOSE${Boff}${Con} are mutually exclusive${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="  ${_data_color}-w${Boff} and ${_data_color}-v${Boff}${Con} are currently implemted as \"last one wins\"${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    j_msg "-${notice}" -pm ""  # severity-sensitive newline
+}
+
+get_ts_and_run_fileset()
+{
+    # read the timestamp on the most recently created test-harness output files
+    # ls -1 (one file per line) -t (time-ordered newest first); keep only first
+#    ts=$(ls -1t /tmp/test-harness-succeeded-* | head -n1)
+#    ts="${ts##*test-harness-succeeded-}"   # strip '*test-harness-succeeded-' from prefix, leaving timestamp
+    ts=$(
+        # find files matching template and prefix with timestamp (%T@), followed by space, followed by path (%p)
+        find /tmp/ -mindepth 1 -maxdepth 1 -type f -name 'test-harness-succeeded-*' -printf '%T@ %p\n' |
+        # sort reverse numeric and keep first only; strip timestamp; strip path and filename template
+        sort -rn | head -n 1 | cut -d' ' -f2- | sed 's|/tmp/test-harness-succeeded-||'
+        )
+    # ensure the entire file set exists
+    for x in succeeded failed unvalidated excepted retry; do
+        file="/tmp/test-harness-${x}-${ts}"
+        [ -f "$file" ] || die "Missing test-harness result file [$file]"
+    done
+
+}
+
+
+parse_cmdline()
+{   local msg opt
+    local OPTIND=1   # reset OPTIND
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]} with arg(s) [$*]"
+    # see getopts --help and man getopts
+    #  leading : places getopts into silent error reporting mode
+    while getopts ":wvh" opt; do
+        case "$opt" in
+            w) WATCH=$TRUE; VERBOSE=$FALSE
+               j_msg "-${debug}" -p "set VERBOSE: [ $(status_color "$VERBOSE")$(TrueFalse "$VERBOSE") ${Boff}]";;
+            v) VERBOSE=$TRUE; WATCH=$FALSE
+               j_msg "-${debug}" -p "set WATCH: [ $(status_color "$WATCH")$(TrueFalse "$WATCH") ${Boff}]";;
+            h) usage; exit 0 ;;
+            *) j_msg "-${err}" -p "${BRon}Error:${Boff} Invalid args"; usage; exit 1 ;;
+        esac
+    done
+    # currently will never check this, but keep incase option-parsing is changed in future
+    # sanity check - $WATCH and $VERBOSE are mutually exclusive
+    [[ "$WATCH" && "$VERBOSE" ]] && {
+        msg="${_var_color}\$WATCH${Boff} and ${_var_color}\$VERBOSE${Boff}${Con} cannot both be set${Boff}"
+        j_msg "-${err}" -p "$msg"
+        usage; exit 1 ; }
+    j_msg "-${debug}" -p "WATCH: [ $(status_color "$WATCH")$(TrueFalse "$WATCH") ${Boff}]"
+    j_msg "-${debug}" -p "VERBOSE: [ $(status_color "$VERBOSE")$(TrueFalse "$VERBOSE") ${Boff}]"
+}
+
+monitor_test()
+{   local msg part_sum sum p_sum
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    separator "$(hostname) ${PN}-${BUILD}" "(results as of $(timestamp))"
+    printf '\n'; j_msg "-${notice}" -p "${BYon}Total pkgs in package.env: ${BBon}[${BMon}${total}${BBon}]${Boff}"
+    for x in succeeded failed unvalidated excepted retry; do
+        # identify the output file for this x by concatenating template, x and timestamp
+        file="/tmp/test-harness-${x}-${ts}"
+        printf '\n'
+        printf '%s\n' "$file"
+        printf '%s\n' "${BCon}$(full_repeat "$bin_uH_heavy" ${#file})${Boff}"
+        part_sum=$(wc -l < "$file")
+        parts[$x]="$part_sum"
+        [ "$VERBOSE" ] && cat "$file"
+        j_msg "-${notice}" -p "${part_color[$x]}$x${Boff}:${BBon} [${part_color[$x]}$part_sum${BBon}]${Boff}"
+    done
+
+    j_msg "-${debug}" -p "(debug) dump parts array"
+    # shell check says things dont expand in '...' but doesnt get that in d_do that is the whole point
+    # shellcheck disable=SC2016
+    d_do 'printf "%s\n" "${!parts[@]}"' "$debug"
+    sum=0
+    for x in "${!parts[@]}"; do
+        p_sum="${parts[$x]}"
+        sum=$(( sum + p_sum ))
+    done
+    printf '\n'; j_msg "-${notice}" -p "${BCon}Cumulative sum: ${BBon}[${BMon}${sum}${BBon}]${Boff}"
+    printf '\n'; j_msg "-${notice}" -p "${BBon}Remaining: ${BBon}[${BMon}$(( total - sum ))${BBon}]${Boff}"
+}
+
+#----[ main script ]-------------------------------------------------------------------------------
+checkroot
+
+parse_cmdline "$@"
+
+get_ts_and_run_fileset
+
+j_msg "-${debug}" -p "in main script about to choose branch by mode"
+
+if [ "$WATCH" ]; then
+    while true; do
+        clear
+        parts=()   # (re)initialize
+        monitor_test
+        printf '\n'
+        j_msg "-${notice}" -mp "(CTRL-C to exit)"
+        sleep 5
+    done
+else
+    parts=()   # (re)initialize
+    monitor_test
+fi
