@@ -1,0 +1,98 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# joetoo-template - display copyable recipes embedded in joetoo headers
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   # like =$(basename $0), without subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"
+#----[ variables ]-------------------------------------------------------------------------
+
+#----[ functions ]-------------------------------------------------------------------------
+usage()
+{
+    # use heredoc to simplify presentation and readability
+    cat <<'USAGE'
+Usage: joetoo-template <module>
+       joetoo-template -l|--list
+       joetoo-template -h|--help
+
+Modules:
+  ssh       SSH agent lifecycle and remote-operation examples
+
+Examples:
+  joetoo-template ssh
+  joetoo-template ssh > new-script.sh
+  joetoo-template ssh | bash -n
+USAGE
+}
+
+#----[ main script ]----------------------------------------------------------------------
+
+# parse cmdline
+# to-do: maybe use getopts but only if rqmt is greater than just sourcing a file
+case "${1:-}" in
+    ssh         ) source_file=/usr/sbin/script_header_joetoo_ssh ;;
+    -h|--help|'') usage; exit 0 ;;
+    -l|--list   ) printf '%s\n' 'ssh'; exit 0 ;;
+    *           ) j_msg "-${err}" -p "${PN}: unknown module: [$1]"; usage >&2; exit 2 ;;
+esac
+
+# guard - proper args
+[ "$#" -ne 1 ] && { j_msg "-${err}" -p "${PN}: requires one module argument"; usage >&2; exit 2; }
+# guard - source file must be readable
+[ ! -r "$source_file" ] && { j_msg "-${err}" -p "${PN}: readable source file [$source_file] not found"; usage >&2; exit 1; }
+
+# use an awk script state machine to read all text between "TEMPLATE:" markers in source file
+# states: 0 - not started yet; 1 - started; 2 - done
+#   extract comments verbatim; NEVER source the module's header
+# keep stdout as clean shell code for redirection or piping
+# CAUTION: no "'" single quote chars inside awk's single-quoted script !!!
+# CAUTION: no "'" single quote chars inside awk's single-quoted script !!!
+# CAUTION: no "'" single quote chars inside awk's single-quoted script !!!
+awk -v module="$1" -v PN="$PN" '
+# BEGIN block - define and initialize variables
+BEGIN {
+    begin = "#-----[ TEMPLATE: " module " BEGIN ]"
+    end   = "#-----[ TEMPLATE: " module " END ]"
+    state = 0
+    count = 0
+    error = 0
+}
+# line-matching action block - if line matches begin string variable
+$0 == begin {
+    count++
+    if (state != 0 || count != 1) error = 1
+    state = 1
+    next
+}
+# line-matching action block - if line matches end string variable
+$0 == end {
+    if (state != 1) error = 1
+    state = 2
+    next
+}
+# state-matching action block (reading template block and line not starting #| is an error)
+state == 1 {
+    if (substr($0, 1, 2) != "#|") {
+        error = 1
+        next
+    }
+    # if not an error, strip "#|" from prefix of line and append the rest to lines[] array
+    lines[++n] = substr($0, 3)
+}
+# END block (print error message under these conditions)
+END {
+    if (count != 1 || state != 2 || error) {
+        printf "%s: %s: %s\n", PN, "missing, duplicate or malformed template", module > "/dev/stderr"
+        exit 1
+    }  # end of if count
+    # iterate through lines and print them all in order
+    for (i = 1; i <= n; i++) print lines[i]
+}
+' "$source_file"
