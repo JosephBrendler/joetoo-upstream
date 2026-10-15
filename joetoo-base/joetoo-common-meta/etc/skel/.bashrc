@@ -14,6 +14,11 @@
 if [[ $- != *i* ]] ; then
 	# Shell is non-interactive.  Be done now!
 	return
+else
+    # Shell is interactive. Fix cursor tracking bounds in bash-5.3_p20.
+    # Fixes history cursor desync/jump-shift introduced by bash-5.3_p20 upstream tool redraw modifications.
+    # Keeps LC_CTYPE=C isolated strictly to non-interactive paths to protect background compilation workflows.
+    export LC_CTYPE="en_US.UTF-8"
 fi
 
 # Put your fun stuff here
