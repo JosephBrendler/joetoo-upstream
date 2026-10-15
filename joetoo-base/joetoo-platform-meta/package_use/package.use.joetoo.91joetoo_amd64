@@ -92,7 +92,7 @@
 # distcc......................: Pull in sys-devel/distcc
 # mkinitramfs ................: Pull in joetoo's initramfs builder and required components
 # jus ........................: Pull in the joetoo update sequence script and dependencies
-# script_header_joetoo .......: Pull in the joetoo script header
+# script-header-joetoo .......: Pull in the joetoo script header
 # compareConfigs .............: Pull in the joetoo's initramfs builder and required componen>
 # Terminal ...................: Pull in the joetoo Terminal c++ shared obj library and test program
 # cloudsync ..................: Cron script to sync content, scripts, binary packages across multiple servers
@@ -113,7 +113,7 @@
 #    +netifrc -networkmanager
 #    -ntp +chrony
 #    +sysklogd -syslog-ng
-#    +script_header_joetoo
+#    +script-header-joetoo
 #    -compareConfigs -Terminal
 #    -domU
 #    -samba
