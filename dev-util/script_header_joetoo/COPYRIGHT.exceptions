@@ -33,3 +33,5 @@
 ./testing/stringConstructor
 ./testing/repeat
 ./archive/testfile
+# script_header_joetoo_ssh contains a template for a script, which includes its own copyright notice
+./script_header_joetoo_ssh
