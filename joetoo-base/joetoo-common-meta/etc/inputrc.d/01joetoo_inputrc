@@ -1,0 +1,8 @@
+# /etc/inputrc.d/joetoo
+# Copyright 2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+$if mode=emacs
+# Workaround for intermittent Readline history redisplay corruption
+"\C-x\C-l": redraw-current-line
+$endif
