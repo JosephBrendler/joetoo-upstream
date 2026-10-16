@@ -92,5 +92,5 @@ export GPG_TTY=$(tty)
 #-----[ fastfetch ]----------------------------------------------------------------------
 command -v fastfetch &>/dev/null && { echo ; fastfetch ; echo ; }
 
-# output info on GPG, XDG, cb_ environment variables
-env | grep -E 'GPG|XDG|cb_' | sort
+# output info on GPG, XDG, locale, cb_ environment variables
+env | grep -E '^GPG|^XDG|^LANG=|^LC_|^cb_' | sort
