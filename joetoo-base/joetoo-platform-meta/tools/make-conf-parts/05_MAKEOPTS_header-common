@@ -14,6 +14,12 @@ EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --ask-enter-invalid"
 EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --with-bdeps=y"
 # Turn on/off the extra emerge output to list which packages are causing rebuilds (default: y)
 EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --verbose-slot-rebuilds=y"
+# Accumulate list of packages to always compile, never install from binpkg
+use_pkg_exclude_list="
+    sys-kernel/gentoo-kernel
+"
+# Kernels must be built locally from each machine's own configuration.
+EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg-exclude=\"${use_pkg_exclude_list}\""
 
 # MAKEOPTS - set -j# and -l#
 #  -j (--jobs) is the number of simultaneous jobs (basic recommendation is (2 * #cpus) + 1)
