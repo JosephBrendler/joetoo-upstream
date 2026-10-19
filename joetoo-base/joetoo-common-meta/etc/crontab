@@ -32,7 +32,6 @@ HOME=/
 9    7  *  *  * root       /usr/bin/cloudsync
 7    1  *  *  * root       /usr/sbin/gen_admin_daily_msg_file
 6    2  *  *  * root       /usr/sbin/eix_update
-46   1  *  *  * root       /usr/sbin/01_logrotate
 */10 *  *  *  * root       /usr/sbin/binhost_cleanup
 
 # crontab fields:
