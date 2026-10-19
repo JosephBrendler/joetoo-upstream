@@ -3,18 +3,21 @@
 #
 # README  - summarize role of each .conf file supporting package.env
 #
-# ghostscript-fix.conf - relax selected compiler warnings/errors and disable distcc for ghostscript builds
-#
+# ghostscript-fix.conf ------------- relax selected compiler warnings/errors
 # crossbuild-perl-fix.conf --------- override/de-confuse perl compiler/linker flags during cross-builds 
 # j4_makeopts.conf ----------------- limit package build concurrency to MAKEOPTS="-j4"
 # nobin_features.conf -------------- force source builds by disabling getbinpkg and userpriv
 # no_collision-protect.conf -------- disable collision protection for packages that intentionally share files
 # mysql-with-protobuf-bundled.conf - force MySQL to build and use its bundled protobuf implementation
 # lang-en_US-UTF-8.conf ------------ force LANG=en_US.UTF-8 for the selected package
-# nodist_features.conf ------------- force source builds and disable distcc and userpriv for selected packages
 # bind_ldflags.conf ---------------- add BIND build-tree library paths with -Wl,-rpath-link for transitive linking
 # j1_makeopts.conf ----------------- serialize package builds (prohibit parallel) with MAKEOPTS="-j1"
 # linker_assist.conf --------------- add --copy-dt-needed-entries to help resolve transitive linker dependencies
+# nodist_features.conf ------------- disable distcc (FEATURES=-distcc)
+# nobin_features.conf -------------- deprecated (**)
+#     ** source-only installation policy is enforced separately by
+#     EMERGE_DEFAULT_OPTS --usepkg-exclude
+#     (in joetoo-platform-meta make.conf template)
 #
 # tools/test-harness - test all packages that have been accumulated in package.env with nodist_features.conf
 #   to help determine if they are in fact still incompatible with distcc
@@ -23,3 +26,89 @@
 # SOP - when muliple policies should be enforced for a given package, include the
 #   package on one line in package.env which lists each .conf above naming a policy
 #   that should be enforced for that package
+#
+# Testing - for develompent, the tools/ directory provides several testing tools -
+#
+#-----[ test-harness ]---------------------------------------------------------------
+# test-harness - test packages for distcc compatibility
+# ckage-env # ./tools/test-harness -h
+#  ✨ usage: test-harness [-h] [-r l|<timestamp>] [-f /path/to/file] [pkg [pkg ...]]
+#  * Options --
+#   -f /path/to/file ..........: set FILE mode (build pkglist from file contents)
+#   pkg [pkg [pkg ...] ........: set FILE mode (incl pkg in pkglist)
+#   -r l[atest]|<timestamp> ...: set RESUME mode (resume process from persisted state)
+#   -I ........................: set INTERACTIVE mode (prompt y|n|s before test run)(default)
+#   -N ........................: set NON-INTERACTIVE mode (do not prompt for approval) (faster)
+#   -v ........................: increase verbosity
+#   -q ........................: decrease verbosity
+#   -h ........................: help (show this message)
+#  * Note --
+#   test-harness default behavior is to build pkglist from developer's package.env
+#   Only one method of specifying an alternate source for pkglist is allowed
+#     -f /path/to/file, pkg pkg pkg (arg list), or package.env (default, no arg)
+#   pkg must be a valid [<category>/]<package>
+#   -f and pkg [pkg] are exclusive (rejected as error)
+#   -f and -r <arg> are exclusive ("last one wins")
+#   for -r <timestamp>, format is YYYYMMDD-HH:MM:SS or YYYY-MM-DD HH:MM:SS
+# Outcome classifications:
+#   succeeded   - target emerge succeeded; remote distcc compilation verified
+#   unvalidated - target emerge succeeded; remote distcc compilation not verified
+#   retry       - Phase 1 target emerge failed; pending dependency preparation
+#   prepared    - Phase 2 dependency preparation succeeded; pending Phase 3
+#   blocked     - Phase 2 dependency preparation failed
+#   failed      - Phase 3 target emerge failed after dependencies were prepared
+#   excepted    - package excluded from testing by explicit policy
+#
+#-----[ monitor-test-harness ]---------------------------------------------------------------
+# monitor-test-harness - in a separate terminal, monitor progress of test-harness
+#   (also includes options to clean up or archive test results)
+# #  ✨ usage: sudo monitor-test-harness [-c a|i|<ts>] [-a a|l|<filter>] [-w] [-v]
+#  * Options --
+#   -w ..............: set WATCH mode (run continuously; summarize)
+#   -v ..............: set VERBOSE mode (run once; show all data) (default)
+#   -c a|i|<ts> .....: set CLEANUP mode (all|interactive|timestamp)
+#   -a a|l|<filter> .: set ARCHIVE mode (all|latest|<archive_filter>)
+#   -h ..............: help (show this message)
+#  * Note --
+#   -w, -v, -c <arg>, and -a <arg> are exclusive; "last wins"
+#   cleanup and archive filenames all resemble test-harness-status-20261009-18:55:57
+#   -c must be followed by <arg> which can be
+#     a|all meaning delete everything matching '*test-harness*' template 
+#     i|interactive meaning clean interactively; confirm each deletion
+#     <timestamp> meaning delete everything matching template and <timestamp>
+#     <timestamp> must be in the format YYYYMMDD-HH:MM:SS or YYYY-MM-DD HH:MM:SS
+#   -a must be followed by <arg> which can be
+#     a|all meaning archive everything matching '*test-harness*' template 
+#     l|latest meaning archive everything matching the latest timestamp
+#     <filter> meaning archive files matching <filter>, which can be --
+#       like "<timestamp>" meaning archive all matching timestamp, or
+#       like "<pattern>-<timestamp>" lets you archive one file matching <pattern>-<timestamp>
+#       (but it can match several (recocmmended to use e.g. "status" for such one-file pattern)
+#       n.b. filter must always include a complete <timestamp> in one of the forms above
+#     monitor-test-harness must be run by root
+#     users needing archive access must be in the wheel group
+#
+#-----[ test-harness-common-functions ]---------------------------------------------------------------
+# test-harness-common-functions - includes --
+#    [helper] functions used by both test harness and monitor-test-harness
+#    functions that can be used from cmdline for test result evidence collection
+#
+# latest_ebuild() - collect actual ebuild for pkgs listed as args
+#    (to determine appropriate disposition for packages placed in categories
+#     unvalidated (succeeded, but no evidence that distcc helped), failed, blocked)
+#
+# latest_logfile() - collect the latest portage build log_file for pkgs listed as args
+#
+# dump_fileset() - dump the content of each file in the timestamped test fileset
+#
+# latest_ts() - get the most recent timestamp from test-harness output filesets
+#
+# list_ts() - list the timestamps of all test-harness output filesets
+#
+# discover_and_validate_ts() - [helper] discover latest timest; validate; assign to global $ts
+#
+# normalize_timestamp() - [helper] if $1 is in "YYY-MM-DD HH:MM:SS" form, convert to "YYYYMMDD-HH:MM:SS"
+#
+# dump_status() - [hrlprt] list current content of global status variables
+#    (phase, pkglist_count, prog_start, cur_pkg_name, cur_pkg_start)
+

@@ -5,14 +5,17 @@
 # test-harness - rigorously test whether packages in package.env actually fail to build with distcc
 #
 # 20261011 - moved to tools/test-harness-common-functions
-# dump_fileset()
-# discover_and_validate_ts()
-# normalize_timestamp()
-# read_status()
-# dump_status()
+#   dump_fileset()
+#   discover_and_validate_ts()
+#   normalize_timestamp()
+#   read_status()
+#   dump_status()
 # 20261011 - moved to script_header_joetoo
-# secs2time()
-# is_valid_timestamp
+#   secs2time()
+#   is_valid_timestamp
+# 20s61017 - moved to tools/test-harness-common-functions
+#   guts of validate_distcc_compiled() - slim wrapper remains, to call
+#     tools/test-harness-common-functions' latest_distcc_evidence()
 
 JOETOO_HEADER_DIR="/usr/sbin"
 # shellcheck source=/usr/sbin/script_header_joetoo
@@ -33,6 +36,26 @@ declare -A outcome_counts   # associative array indexed on outcome names, to hol
 declare -A outcome_color
 outcome_counts=()
 outcome_color=()
+
+# Remote compilation validation settings used in phase 1 & 3 emerge env override
+#  hosts: subset of normal cluster - all p-core machines w distcc-estimator score over 10,000
+test_distcc_hosts='gmki92,lzo/4 nuoromis,lzo/8 tahawus,lzo/8 nuthuvia,lzo/7'
+#  test_jobs: the maximum number of parallel portage package build jobs that emerge can run
+test_jobs=1   # i.e. serialize to only one package at a time
+#  makeopts: the maximum number of make jobs each package-build job can run
+# local job limit L = min(local_cores, local_RAM_GB/2)
+# L=0, since localhost is NOT in hosts list - excluded for intentionally remote testing
+# remote job limit R = sum(min(remote_cores, remote_RAM_GB/2))
+# effective MAKEOPTS = -j(L + floor(0.75 * R))
+# ( 0 + floor(0.75 * 27) = 20
+# Note: package ebuilds can override this
+test_makeopts='-j20'
+# maximum local build concurrency for phase 2 dependency preparation
+max_test_deps_makeopts="4"
+# calculated local build concurrency, calc below, use for phase 2 concurrency (calc below)
+local_job_limit=""
+# local build concurrency value used for phase 2 (calc below)
+test_deps_makeopts=""
 
 # terminal outcome colors
 outcome_color[succeeded]="$BGon"
@@ -118,38 +141,77 @@ prepared_file=""
 
 # define package.env file
 package_env_dir="/home/joe/joetoo-upstream/joetoo-base/joetoo-per-package-env"
+# check if package_env_dir exists
+[ -d "$package_env_dir" ] || die "package_env_dir [$package_env_dir] does not exist"
 package_env_file="${package_env_dir%/}/package.env"
+# check if package_env_file exists
+[ -f "$package_env_file" ] || die "package_env_file [$package_env_file] does not exist"
 
 # placeholder for pkg_source, assigned below (default to package.env
 pkg_source="package_env"
 
-# capture the log line-count before starting so as to know where to start looking
+# identify the active distcc-client.log (joetoo config sets in make.conf)
 distcc_log="/var/log/distcc/distcc-client.log"
-distcc_log_start=$(wc -l < "$distcc_log")
+# check if distcc_log exists
+[ -f "$distcc_log" ] || die "distcc_log [$distcc_log] does not exist"
+
+# capture the log line-count before starting so as to know where to start looking
+# calculate the starting number of lines in distcc-client.log (for use in post-test tail grep)
+distcc_log_start="0"
+# identify the dirname at which to find the latest rotated distcc-client.log archive
+distcc_archive_dir="/var/log/old_logs/"
+distcc_archive_pattern='distcc-client.log-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz'
+# archive filename found there
+distcc_archive=""
+# modification date found there (to detect if a rotation has occurred) format: seconds since epoch
+distcc_archive_date="0"
+# check if distcc_archive_dir exists
+[ -d "$distcc_archive_dir" ] || die "distcc_archive_dir [$distcc_archive_dir] does not exist"
+
 
 # populate the excepted array and excepted_file
-# first category: by policy, do not distribute kernel, gcc, or binutils
-# (gcc builds joetoo custom kernels with hardened profile/settings)
+# category 1 - by policy, do not compile for packages where this is
+# a documented concern or security hazard
+# gcc and cross-gcc - distcc documents GCC's multi-stage bootstrap
+#     presents documented distcc complications
+#     https://www.distcc.org/faq.html
+# hardened gentoo-kernel uses GCC plugin unsafe for ditributed compile
+#     https://cdn.kernel.org/doc/html/latest/kbuild/gcc-plugins.html
+# rust - Gentoo's docs explicitly say Rust compilation is not supported by distc
+#     https://wiki.gentoo.org/index.php?title=Rust&utm_source=chatgpt.com#Environment_variables
+# Note: binutils, llvm, etc need not be. It is not a "dont distribute toolchan" policy
+#
 excepted=(
-  sys-kernel/gentoo-kernel
-  sys-devel/binutils
-  cross-armv6j-unknown-linux-gnueabihf/binutils
-  cross-armv7a-unknown-linux-gnueabihf/binutils
-  cross-aarch64-unknown-linux-gnu/binutils
-  sys-devel/gcc
+  cross-aarch64-unknown-linux-gnu/gcc
   cross-armv6j-unknown-linux-gnueabihf/gcc
   cross-armv7a-unknown-linux-gnueabihf/gcc
-  cross-aarch64-unknown-linux-gnu/gcc
-  llvm-core/llvm
-  llvm-core/llvm-common
-  llvm-core/llvm-runtime
+  cross-avr/gcc
+  dev-lang/rust
   llvm-core/clang
-  llvm-runtimes/clang-runtime
+  llvm-core/llvm
+  sys-devel/gcc
+  sys-kernel/gentoo-kernel
 )
 # category 2 - these packages have been tested and are NOT compatible
-# excepted+=( ... )
+# # poppler-26.05.0-r1: distcc 3.4 strips -MD/-MF, breaking C++23 deps; native build succeeds.
+# intel-graphics-compiler-2.41.9-r1: distcc-wrapped clang-22 -cc1 fails on invalid -target
+#    during OpenCL bitcode generation; native -distcc build succeeds
 #
-# category 3 - these packages have been tested; they fail and they take FOREVER
+excepted+=(
+  app-text/poppler
+  dev-util/intel-graphics-compiler
+)
+#
+# category 3 - these packages failed test-harness and while they are not conclusively
+# incompatible with distcc, there is historical evidence that they are not "distcc-friendly"
+#
+excepted+=(
+  net-fs/samba
+  sys-libs/talloc
+  sys-libs/tevent
+)
+#
+# category 4 - these packages have been tested; they fail and they take FOREVER
 # excepted+=( ... )
 #
 
@@ -181,6 +243,7 @@ run_elapsed=""
 # global elapsed time (in ddd:hh:mm:ss format) of the entire test run (all pkgs, all phases)
 run_elapsed_fmt=""
 
+
 # pre-define a dynamic macro for adjusting verbosity
 # (evaluated in script_header_joetoo's _pc_action_verbosity() helper)
 # usage example: _pc_operator="+"; eval "$_pc_adjust_verbosity"
@@ -190,8 +253,10 @@ _pc_adjust_verbosity="verbosity=\$(( verbosity \${_pc_operator} 1 ))"
 varlist="PN BUILD"
 varlist+=" bool.INTERACTIVE bool.DEBUG bool.LOGGING logFile"
 varlist+=" pkg_source initial_pkglist_count"
-varlist+=" rlv.package_env_dir rlv.package_env_file"
+varlist+=" test_distcc_hosts test_jobs test_makeopts test_deps_makeopts"
+varlist+=" rlv.package_env_file"
 varlist+=" rlv.distcc_log distcc_log_start"
+varlist+=" rlv.distcc_archive distcc_archive_date"
 varlist+=" status_file prog_start tmp_file"
 varlist+=" ts"
 varlist+=" pkglist_file"
@@ -292,11 +357,11 @@ parse_cmdline()
                 ;;
             I)  # INTERACTIVE on
                 INTERACTIVE=$TRUE
-                j_msg "-${debug}" -p "set INTERACTIVE [$(status_color "$INTERACTIVE")$(TrueFalse "$INTERACTIVE")]"
+                j_msg "-${debug}" -p "set INTERACTIVE [$(status_color "$INTERACTIVE")$(TrueFalse "$INTERACTIVE")]${Boff}"
                 ;;
             N)  # INTERACTIVE off
                 INTERACTIVE=$FALSE
-                j_msg "-${debug}" -p "set INTERACTIVE [$(status_color "$INTERACTIVE")$(TrueFalse "$INTERACTIVE")]"
+                j_msg "-${debug}" -p "set INTERACTIVE [$(status_color "$INTERACTIVE")$(TrueFalse "$INTERACTIVE")]${Boff}"
                 ;;
             q)  # decrease verbosity
                 _pc_operator="-"
@@ -681,6 +746,8 @@ initialize_run() {
     local _ir_type="" _ir_suffix="" result=0 pkg_count=0
     local -n _ir_var   # local nameref for assigning global variables
     local pkg="" msg=""
+    local distcc_archive_date_hr=""
+    local pipe_status="0"
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
 
     # assign initial_pkglist_count since pkglist_count will change in subsequent phases
@@ -690,7 +757,37 @@ initialize_run() {
     prog_start="$(date +%s)"   # current time in seconds
     # get timestamp to disambiguate other output files
     ts="$(timestamp)"
+    j_msg "-${debug}" -p "Test run timestamp: [$ts]"
 
+    # find current distcc archive and its modification date/time
+    local -a find_args=( "$distcc_archive_dir" -mindepth 1 -maxdepth 1 )
+    find_args+=( -type f -name "$distcc_archive_pattern" )
+    # assign initial distcc_log_start - current last line in the active log, beyond which this run will write
+    j_msg "-${debug}" -p -n "Assigning initial distcc_log_start"
+    distcc_log_start="$(wc -l < "$distcc_log")"
+    handle_result $? "$distcc_log_start" "" "$debug" || die "failed to count distcc log lines"
+    # find the latest archived distcc-client.log, if one exists
+    # filename form: distcc-client.log-YYYYMMDD.gz; sort reverse; keep first
+    # use pipefail to capture status of entire pipeline, not just head
+    j_msg "-${debug}" -p -n "Finding distcc_archive"
+    set -o pipefail
+    distcc_archive="$( find "${find_args[@]}" | LC_COLLATE="C" sort -r | head -n 1 )"
+    pipe_status=$?
+    set +o pipefail
+    handle_result "$pipe_status" "${distcc_archive##*/}" "" "$debug" ||
+        die "failed to find distcc_archive" "$pipe_status"
+    # assign time of last data modification, seconds since Epoch
+    if [[ -n "$distcc_archive" ]]; then
+        # assign initial distcc archive date (note that it could get rotated during test)
+        j_msg "-${debug}" -p -n "Getting distcc_archive_date"
+        distcc_archive_date="$(stat -c %Y "$distcc_archive")" &&
+            distcc_archive_date_hr="$(date -d "@${distcc_archive_date}" +%Y%m%d)"
+        handle_result $? "$distcc_archive_date_hr" "" "$debug" || die "failed to stat distcc_archive"
+    else
+        # does not exist (yet) so set log starting line and date seconds = 0
+        j_msg "-${debug}" -p "no distcc_archive [$distcc_archive] exists yet; thus its date seconds is 0"
+        distcc_archive_date="0"
+    fi
     # assign filenames for the persistence files - including tmp and status
     # iterate over outcome_list plus tmp. status and pkglist to do those files too
     # (note one-off for tmp because it is a filename extension)
@@ -811,6 +908,14 @@ update_status_file() {
 }
 
 validate_distcc_compiled() {
+    local pkg="$1"
+    local log_source="$2"
+    local first_line="$3"
+
+    latest_distcc_evidence "$pkg" first "$log_source" "$first_line"
+}
+
+legacy_validate_distcc_compiled() {
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # make only one pass through a potentiall very large section of the log;
     # feed tail to awk with process substitution to avoid vulnerability of pipeline feed to
@@ -879,9 +984,15 @@ runtest() {
     j_msg "-${debug}" -p "dumping current status file"
     # shellcheck disable=SC2016
     d_do 'cat "$status_file"' "$debug" || die "failed to dump status_file [$status_file]"
-    local result=0
+    local result=0 msg=""
     local pkg_start="" pkg_end="" pkg_elapsed="" pkg_elapsed_fmt=""
-    local pkg="" msg="" candidate="" outcome=""
+    local pkg="" candidate="" outcome="" pipe_status="0"
+    local current_distcc_archive=""
+    local current_distcc_archive_date="0" current_distcc_archive_date_hr=""
+    local consolidated_log=""
+    # find current distcc archive and its modification date/time
+    local -a find_args=( "$distcc_archive_dir" -mindepth 1 -maxdepth 1 )
+    find_args+=( -type f -name "$distcc_archive_pattern" )
     for pkg in "${pkglist[@]}"; do
         # if pkg is in the excepted list, then just skip it
         for candidate in "${excepted[@]}"; do
@@ -890,7 +1001,22 @@ runtest() {
         # start the test timer clock
         pkg_start=$(date +%s)   # start time in seconds
         # (re)set the logfile line count to know where to start looking at records to validate
-        distcc_log_start=$(wc -l < "$distcc_log")
+        distcc_log_start=$(wc -l < "$distcc_log") || die "failed to count lines in distcc_log [$distcc_log]"
+        # Synchronize the archive baseline with this package's active-log starting line
+        j_msg "-${debug}" -p -n "Finding distcc_archive"
+        set -o pipefail
+        distcc_archive="$(find "${find_args[@]}" | LC_ALL=C sort -r | head -n 1)"
+        pipe_status=$?
+        set +o pipefail
+        handle_result "$pipe_status" "${distcc_archive##*/}" "" "$debug" ||
+            die "failed to discover starting distcc_archive for [$pkg]" "$pipe_status"
+        distcc_archive_date=0
+        if [ -n "$distcc_archive" ]; then
+            distcc_archive_date="$(stat -c %Y "$distcc_archive")" || die "failed to stat starting distcc archive"
+        else
+            j_msg "-${debug}" -p "no distcc_archive [$distcc_archive] exists yet; thus its count and date are 0"
+            distcc_archive_date=0
+        fi
         # build replacement status file with current package name and start time in status_file
         j_msg "-${debug}" -p -n "Start of runtest; updating status via tmp_file [$tmp_file]"
         update_status_file "$phase" "$pkg" "$pkg_start"
@@ -906,22 +1032,89 @@ runtest() {
                 prepared+=( "$pkg" )
                 outcome="prepared"
             else
-                j_msg "-${notice}" -m "Validating [$pkg] as distcc-compiled ..."
-                if validate_distcc_compiled; then
-                    result=0
-                    succeeded+=( "$pkg" )
-                    outcome="succeeded"
-                    # display result for successful emerge, showing wheter distcc helped or not
-                    j_msg "-${notice}" -p -n "Good emerge; confirmed distcc helped compile [$pkg]; result:"
-                    handle_result "$result" "Yes" "No; status: [$result]" "$notice"
+                # resilience check - did log get rotated during this pkg emerge ?
+                # find the current distcc_archive and get its modification date
+                j_msg "-${debug}" -p -n "Finding current_distcc_archive"
+                set -o pipefail
+                current_distcc_archive="$( find "${find_args[@]}" | LC_COLLATE="C" sort -r | head -n 1 )"
+                # pipefail ensures non-zero return if ANY part of pipe fails, but because the pipeline
+                # runs inside command substitution the parts of PIPESTATUS[@] are not available
+                pipe_status=$?
+                set +o pipefail
+                handle_result "$pipe_status" "${current_distcc_archive##*/}" "" "$debug" ||
+                    die "failed to discover current distcc archive" "$pipe_status"
+                # find returns 0 even if there is no such file, so check in case it just does not exist yet
+                if [ -n "$current_distcc_archive" ] ; then
+                    j_msg "-${debug}" -p -n "Getting current_distcc_archive_date"
+                    current_distcc_archive_date="$(stat -c %Y "$current_distcc_archive")" &&
+                        current_distcc_archive_date_hr="$(date -d "@${current_distcc_archive_date}" +%Y%m%d)"
+                    handle_result $? "$current_distcc_archive_date_hr" "" "$debug" ||
+                        die "failed to get current_distcc_archive_date"
                 else
-                    result=$?   # overwrite emerge result with validate result
-                    unvalidated+=( "$pkg" )
-                    outcome="unvalidated"
-                    # display result for successful emerge, showing wheter distcc helped or not
-                    j_msg "-${notice}" -p -n "Good emerge but no evidence distcc helped compile [$pkg]; result:"
-                    handle_result "$result" "Yes" "No; status: [$result]" "$notice"
+                    # does not exist (yet); set date seconds = 0
+                    current_distcc_archive_date="0"
                 fi
+                # if archive is new, then concatenate relevant portion of it with current log
+                if (( current_distcc_archive_date > distcc_archive_date )) ; then
+                    j_msg "-${debug}" -p "Log was rotated; consolidating parts"
+                    # create a consolidated log in temp file
+                    j_msg "-${debug}" -p -n "creating tempfile for consolidated_log"
+                    consolidated_log="$(mktemp /tmp/tmp_consol_distcc_log.XXXXXXXXXX)"
+                    right_status $? "$debug" || die "failed to create tempfile for consolidated_log"
+                    # stream relevant portion of archive into tempfile
+                    j_msg "-${debug}" -p -n "Steaming relevant archive lines to consolidated_log"
+                    set -o pipefail   # any failure in pipeline is bad here
+                    zcat "$current_distcc_archive" | tail -n +$(( distcc_log_start + 1 )) > "$consolidated_log"
+                    pipe_status=$?
+                    set +o pipefail
+                    right_status "$pipe_status" "$debug" || die "failed to stream relevant archive lines to consolidated_log"
+                    # append active log to tempfile
+                    j_msg "-${debug}" -p -n "Appending active log lines to consolidated_log"
+                    cat "$distcc_log" >> "$consolidated_log"
+                    right_status $? "$debug" || die "failed to append active log lines to consolidated_log"
+
+                    # call wrapper to call external common function to look for distcc evidence
+                    j_msg "-${notice}" -m "Validating [$pkg] as distcc-compiled ..."
+                    # check if distcc helped compile, and overwrite emerge result
+                    validate_distcc_compiled "$pkg" "$consolidated_log" "1"; result=$?
+                    j_msg "-${debug}" -p "Validator returned result [$result]"
+
+                    # clean up temp consolidated_log
+                    j_msg "-${debug}" -p -n "Cleaning up temp consolidated_log"
+                    rm -f "$consolidated_log"
+                    right_status $? "$debug" || j_msg "-${warn}" -p "failed to clean up temp consolidated_log"
+
+                    # re-set global distcc_archive and distcc_archive_date so post-rotation pkgs wont
+                    # accidentally think they need to run this consolidation, too
+                    distcc_archive="$current_distcc_archive"
+                    distcc_archive_date="$current_distcc_archive_date"
+                else
+                    # call wrapper to call external common function to look for distcc evidence
+                    j_msg "-${notice}" -m "Validating [$pkg] as distcc-compiled ..."
+                    # check if distcc helped compile, and overwrite emerge result
+                    validate_distcc_compiled "$pkg" "$distcc_log" "$((distcc_log_start + 1))"; result=$?
+                fi
+                case "$result" in
+                    0 )
+                        succeeded+=( "$pkg" )
+                        outcome="succeeded"
+                        j_msg "-${notice}" -m -n "distcc compile validation check complete; result: ..."
+                        handle_result "$result" "Yes" "" "$notice"
+                        # display more detailed result for successful emerge, showing wheter distcc helped or not
+                        j_msg "-${notice}" -p "Good emerge; confirmed distcc helped compile [$pkg]; result:"
+                        ;;
+                    99)
+                        unvalidated+=( "$pkg" )
+                        outcome="unvalidated"
+                        j_msg "-${notice}" -m -n "distcc compile validation check complete; result: ..."
+                        handle_result "$result" "" "No; status: [$result]" "$notice"
+                        # display result for successful emerge, showing wheter distcc helped or not
+                        msg="Good emerge but no evidence distcc helped compile [$pkg]; result:"
+                        j_msg "-${notice}" -p -M "$idx_face_frown" "$msg"
+                        ;;
+                     * )
+                        die "${BRon}Error:${Boff} validate_distcc_compiled failure" "$result" ;;
+                esac
             fi
         else
             result=$?
@@ -1022,6 +1215,9 @@ do_phase() {
     if [ "$INTERACTIVE" ]; then
         show_config
         prompt_for_interactive
+    else
+        msg="Running NONINTERACTIVE. Starting distcc-client.log line-count = [$distcc_log_start]"
+        j_msg "-${notice}" -p "$msg"
     fi
     runtest
 }
@@ -1075,12 +1271,14 @@ build_cmd() {
     #use FEATURES to control distcc - use emerge args --usepkg=y/n --getbinpkg=y/n to control binpkgs
     if (( phase == 1 || phase == 3 )); then
         emerge_features="distcc"
-        emerge_env=( "FEATURES=${emerge_features}" )
-        emerge_env+=( DISTCC_FALLBACK=0 DISTCC_SKIP_LOCAL_RETRY=1 )
-
+        emerge_env=(  "DISTCC_HOSTS=${test_distcc_hosts}" )
+        emerge_env+=( "MAKEOPTS=${test_makeopts}" )
+        emerge_env+=( "FEATURES=${emerge_features}" )
+        emerge_env+=( "DISTCC_FALLBACK=0" "DISTCC_SKIP_LOCAL_RETRY=1" )
     elif (( phase == 2 )); then
         emerge_features="-distcc"
         emerge_env=( "FEATURES=${emerge_features}" )
+        emerge_env+=( "MAKEOPTS=${test_deps_makeopts}" )
     else
         die "invalid phase in runtest" 1
     fi
@@ -1098,19 +1296,52 @@ build_cmd() {
     else
         die "invalid phase [$phase] in build_cmd"
     fi
-    args+=( --jobs=1 )   #.......................# job-concurrency - i.e. serialize
+    args+=( --jobs="$test_jobs" )   #............# package-build job-concurrency (not same as MAKEOPTS)
     args+=( --quiet-build=n )   #................# disable redirection of all build output to logs alone
     args+=( --accept-properties=-interactive )   # do not make it interactive
     args+=( --accept-restrict=-fetch )   #.......# do not restrict fetch
 
-    cmd_msg="${BCon}Command: [${BAon}FEATURES=${BYon}\"${emerge_features}\"${Boff}"
-    if (( phase != 2 )); then
-        cmd_msg+=" ${BAon}DISTCC_FALLBACK=${BMon}0${Boff}"
-        cmd_msg+=" ${BAon}DISTCC_SKIP_LOCAL_RETRY=${BMon}1${Boff}"
-    fi
+    cmd_msg="${BCon}Command: [${BAon}${emerge_env[*]}""${Boff}"
     cmd_msg+=" ${BBon}emerge ${Boff}${args[*]}"
     cmd_msg+=" ${BYon}\${pkg}${BCon}]${Boff}"
-#    j_msg "-${notice}" -p "$cmd_msg"   # display with show_config instead
+}
+
+calculate_local_job_limit() {
+    # calculate and assign global test_deps_makeopts
+    local local_cores=""
+    local local_ram_gb=""
+    local local_ram_jobs=""
+
+    # read number of local cores from system
+    j_msg "-${debug}" -m -n "Getting local core count"
+    local_cores="$(nproc)"
+    handle_result "$?" "$local_cores" "" "$debug" || die "failed to get local core count"
+    # read local avalable ram from system
+    j_msg "-${debug}" -m -n "Getting local RAM"
+    local_ram_gb="$( free -g | awk ' /Mem:/ {print $2} ' )"
+    handle_result "$?" "$local_ram_gb" "" "$debug" || die "failed to get local RAM"
+    # estimate ram need is about 2G per concurrent job
+    j_msg "-${debug}" -m -n "Calculating local ram job capacity"
+    local_ram_jobs="$((local_ram_gb / 2))"
+    handle_result "$?" "$local_ram_jobs" "" "$debug" || die "failed to calculate local ram job capacity"
+    # the local capacity is the lesser of what cpu or ram can handle
+    j_msg "-${debug}" -m -n "Calculating local cpu vs ram job capacity"
+    local_job_limit="$(( local_cores < local_ram_jobs
+        ? local_cores : local_ram_jobs ))"
+    handle_result "$?" "$local_job_limit" "" "$debug" || die "failed to calculate local cpu vs ram job capacity"
+    # apply max cap for this if needed
+    j_msg "-${debug}" -m -n "Calculating phase 2 makeopts"
+    test_deps_makeopts="$(( local_job_limit < max_test_deps_makeopts
+        ? local_job_limit : max_test_deps_makeopts ))"
+    handle_result "$?" "$test_deps_makeopts" "" "$debug" || die "failed to calculate phase 2 makeopts"
+    # guard just in case
+    if (( test_deps_makeopts < 1 )) ; then
+        test_deps_makeopts=1
+        j_msg "-${debug}" -m "Applied non-negative safeguard. test_deps_makeopts: [$test_deps_makeopts]"
+    fi
+    j_msg "-${debug}" -m -n "Prepending -j for MAKEOPTS"
+    test_deps_makeopts="-j${test_deps_makeopts}"
+    handle_result "$?" "$test_deps_makeopts" "" "$debug" || die "failed to calculate phase 2 makeopts"
 }
 
 finalize_run() {
@@ -1142,6 +1373,9 @@ validate_logfile
 
 # parse the command line and '*populate pkglist[ ]*'
 parse_cmdline "$@"
+
+# calculate local concurrency limits for phase 2
+calculate_local_job_limit
 
 # only make new runs validate this; recovery restores an already-accepted list
 [ ! "$resume_target" ] && validate_pkglist_exception_policy

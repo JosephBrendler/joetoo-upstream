@@ -5,6 +5,219 @@
 # test-harness-common-functions - to be sourced by using scripts
 #
 # these functions are sourced currently by both test-harness and monitor-test-harness
+# shellcheck disable=SC2154
+
+latest_distcc_evidence() {
+    [ $# -eq 0 ] &&
+        { j_msg "-${notice}" -p "usage: latest_distcc_evidence <pkg> [mode] [/path/to/log] [starting_log_line]";
+          return 1 ; }
+    local pkg="$1"
+    #  guard - early return if no args
+#    if ! equery list -p "$pkg" >/dev/null 2>&1; then
+#        j_msg "-${err}" -p "package [$pkg] is not a valid atom"
+#        return 2
+#    fi
+    # set up a local distcc_log assigned the value of global of same name if there is such
+    local distcc_log="${distcc_log:-/var/log/distcc/distcc-client.log}"
+    local mode="${2:-first}"   #.............# default first (vs all, count) - validate when used
+    local log_file="${3:-"${distcc_log}"}"   # default to distcc_log
+    # validate log_file
+    [ ! -f "$log_file" ] && { j_msg "-${notice}" -p "log file [$log_file] not found"; return 3 ; }
+    local starting_log_line="${4:-1}"   #...........# starting point for log tails
+    local msg=""
+    local log_file_len="$(wc -l < "$log_file")"  || die "failed to count lines in log_file"
+    # validate starting_log_line
+    msg="Error: starting_log_line [$starting_log_line] > length of log_file [$log_file_len]"
+    if ! isint "$starting_log_line"; then
+        j_msg "-${err}" -p "Error: non-integer starting_log_line [$starting_log_line]"
+        return 4
+    fi
+#    if (( starting_log_line > log_file_len + 1 )) ; then
+#        j_msg "-${err}" -p "Error: starting_log_line [$starting_log_line] out of bounds"
+#        return 1
+#    fi
+
+#    # sanity check if old_logs
+#    if [[ "$log_file" == "/var/log/old_logs/"* && "$starting_log_line" -gt 1 ]]; then
+#        j_msg "-${err}" -p "starting_log_line [$starting_log_line] > 1 not allowed for old_logs"
+#        return 1
+#    fi
+    local -a awk_args=()
+    # devine variable values to be passed to awk with -v
+    awk_args=( -v pkgdir="/var/tmp/portage/" )   #...# use for string-matching lines in log tail
+    awk_args+=( -v pkg="${pkg}" )   #................# this is the pkg under test/investigation
+    awk_args+=( -v mode="$mode" )   #................# output mode first, all, count
+    awk_args+=( -v verbosity="$verbosity" )   #......# convey system verbosity
+    awk_args+=( -v DBUG=$(( DEBUG == 0 ? 1 : 0 )) )  # convert pseudo-boolean DEBUG to binary bool
+    # collect evidence documenting that distcc helped compile part(s) of pkg remotely; args -
+    # $1: first - silent; returns 0 when remote compilation is confirmed, 1 otherwise
+    # $1: all - print each matching pid's package-path evidence and successful remote-compile record
+    # $1: count - prints the number of distinct matching successful remote compilation pids
+    # $2: log file(s) - pathnames or filter-matches to either /var/log/distcc/distcc-client.log (default)
+    #         or /var/log/old_logs/distcc-client.log-YYYYMMDD.gz
+    # $3: starting_log_line - sequential line in log_file at which to start looking (i.e. after which)
+    #----[content from former validate_distcc_compile ]-----------------------------------------------
+    #         Note: test-harness reports this at the beginning of each test run, or you can
+    #         determine it manually: wc -l $log_file
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
+    # make only one pass through a potentiall very large section of the log;
+    # feed tail to awk with process substitution to avoid vulnerability of pipeline feed to
+    #   pipefail termination, because this way if tests only awk's exit status.
+    # provide pathname of pkg as an ask variable
+    # note two awk action blocks --
+    #   awk_pkg_pids[pid] is an associative array keyed on pid -- identify which pids this package started
+    #   remote_ok[pid] is an associattive array keyed on pid -- identify this pid completed remotely
+    # for some packages the full pathname US ib the completed ok, line but for many packages,
+    #   there is no single log line that contains both pieces of info; so we have one block to
+    #   collect each, and having both = success (if a line comes through that hits on both blocks
+    #   but for many packages it will take more than one line from the process
+    # *** CAUTION *** there can be no single quotes inside the awk script ' ... '
+    # *** CAUTION *** there can be no single quotes inside the awk script ' ... '
+    # *** CAUTION *** there can be no single quotes inside the awk script ' ... '
+    if awk "${awk_args[@]}" '
+            # check if the current log line contains the package build path substring
+            # use index($0, var) [literal string match] rather than $0 ~ var [regex match]
+            # to match pkgdir name exactly w/o confusing e.g. "." as "any char"
+            # but use regex match for /pgk<digit> to use numeric character class to ensure
+            # it matches both the / left of pkg name AND the first digig of a version number after "-"
+            # thus differentiating (e.g. for pkg = fastfetch /fastfetch-2.65.2-r1 (good)
+            # from /fastfetch-tools-1.0 (bad) - note implicit concatenation of the three parts
+            # caveat: regex can misbehave if pkg contains regex metacharacters like + or .
+            # this mitigates that risk by dropping "index($0, pkgdir) && $0 ~ ("/" pkg "-[0-9]")"
+            # for the safer substring extraction below
+            index($0, pkgdir) {
+                p = index($0, "/" pkg "-")   #......# get index locating "/pkg-"
+                if (p && p > index($0, pkgdir) &&   # ensure that p is to the right of pkgdir
+                # extract a 1-char substring offset from the location of /pkg- by the length of pkg + 2
+                # (i.e. len pkg + "/" + "-") and compare to a solitary single digit 0-9
+                substr($0, p + length(pkg) + 2, 1) ~ /^[0-9]$/) {
+                    pid=$1   #..................# lines start "distcc[<pid>]"
+                    sub(/^distcc\[/, "", pid)   # strip "distcc[" from prefix
+                    sub(/\]$/, "", pid)   #.....# strip "]" from suffix
+                    awk_pkg_pids[pid]=1   #..........# assign awk_pkg_pids for this line (which is not an ok/fail line)
+                    # if pid is for pkg AND remote_ok, success
+                    if (remote_ok[pid]) { found=1; exit ; }
+                }
+            }
+            # if line matches a completed compile NOT done by local host ...
+            / completed ok/ && / compile / && !/ on localhost/ {
+                pid=$1   #..................# lines start "distcc[<pid>]"
+                sub(/^distcc\[/, "", pid)   # strip "distcc[" from prefix
+                sub(/\]$/, "", pid)   #.....# strip "]" from suffix
+                remote_ok[pid]=1   #..........# assign remote_ok pid for this pid (which may not be a pkg pid)
+                # if pid is for pkg AND remote_ok, success
+                if (awk_pkg_pids[pid]) { found=1; exit ; }
+            }
+            # no single log line can make both assignment above; if both are now made, this is validated
+            END { exit(found ? 0 : 1) ; }
+        ' < <( tail -n "+${starting_log_line}" "$log_file" )
+    then
+        return 0   # SUCCESS (found evidence distcc helped compile)
+    else
+        return 99   # FAILED to validate (no evidence distcc helped compile pkg)
+    fi
+
+}
+
+latest_ebuild() {
+    # print the name of the latest log file matching input package name
+    [ $# -eq 0 ] &&
+        { j_msg "-${err}" -p "latest_ebuild requires arg(s) - one+ package atoms"; return 1 ; }
+    local -a atoms
+    local -a ebuilds
+    local staging_area="/home/joe/scratch/evidence"
+    local eb=""
+
+    atoms=( "$@" )
+    ebuilds=()
+
+    # iterate through atoms
+    for atom in "${atoms[@]}"; do
+        # validate the package name
+        # equery list (under -q) exits 0 = 1+ pkg found; 3 = no pkgs found
+        if ! equery list -p "$atom" >/dev/null 2>&1; then
+            j_msg "-${err}" -p "package [$atom] is not a valid atom"
+            return 1
+        fi
+        # get the authoritative ebuild for atom from equery w; ensure it exists
+        # equery -q = quiet; (w)hich - print full path to ebuild for atom
+        if eb=$(equery -q which "$atom") && [[ -f "$eb" ]]; then
+        # print a spaced section heading for this package atom
+            printf '\n'
+            printf '%s%s%s\n' "${Con}" "$atom" "${Boff}"
+            printf '%s\n' "$(full_repeat "$bin_uH_heavy" ${#atom})"
+            # print it and add it to array for building tarball
+            j_msg "-${notice}" -m "${eb}"
+            ebuilds+=( "$eb" )
+        else
+            j_msg "-${err}" -p "ebuild for atom: [$atom] not found"
+        fi
+    done
+
+    tarball_pathname="${staging_area%/}/evidence_ebuilds_$(timestamp).tbz2"
+    j_msg "-${notice}" -mp ""
+    j_msg "-${notice}" -p "target tarball:"
+    j_msg "-${notice}" -m "[$tarball_pathname]"
+    j_msg "-${notice}" -mp ""
+    j_msg "-${notice}" -p -n "preparing ebuild tarball"
+    tar -cvjpf "${tarball_pathname}" "${ebuilds[@]}" >/dev/null 2>&1
+    handle_result $? "Collected [${#ebuilds[@]}] ebuilds" "" "$notice"
+    j_msg "-${notice}" -p -n "setting permissions on tarball"
+    chown joe:joe "${tarball_pathname}"
+    right_status $? "$notice"
+
+}
+
+latest_logfile() {
+    # print the name of the latest log file matching input package name
+    [ $# -eq 0 ] &&
+        { j_msg "-${err}" -p "latest_logfile requires arg(s) - one+ package atoms"; return 1 ; }
+    local -a atoms=()
+    local -a find_args=()
+    local -a log_files=()
+    local atom="" log_file="" tarball_pathname=""
+    local staging_area="/home/joe/scratch/evidence"
+    # set up find_args in an array so the find and filter pipeline will be human-readable
+
+    atoms=( "$@" )
+
+    for atom in "${atoms[@]}"; do
+        # validate the package name
+        # equery list (under -q) exits 0 = 1+ pkg found; 3 = no pkgs found
+        if ! equery list -p "$atom" >/dev/null 2>&1; then
+            j_msg "-${err}" -p "package [$atom] is not a valid atom"
+            return 1
+        fi
+        category="${atom%/*}"
+        pkg="${atom#*/}"
+        find_args=( /var/log/portage -mindepth 1 -maxdepth 1 )    # look inside the dir only, not at it or s>
+        find_args+=( -type f -name "${category}:${pkg}-*.log" )   # filter for files with name matching templa>
+        find_args+=( -printf '%p\n' )   #.........................# print path (date-sortable b/c ts in in fil>
+
+        # print a spaced section heading for this package atom
+        printf '\n'
+        printf '%s%s%s\n' "${Con}" "$atom" "${Boff}"
+        printf '%s\n' "$(full_repeat "$bin_uH_heavy" ${#atom})"
+        # find the most recent log file
+        # form: x11-wm:twm-1.0.13.1:20251004-205146.log [ colon : delimited ]
+        # sort reverse on field 3 (which is a timestamp)
+        log_file=$(find "${find_args[@]}" | LC_ALL=C sort -r -t':' -k3| head -n 1)
+        # print it and add it to array for building tarball
+        printf '%s\n' "$log_file"
+        log_files+=( "$log_file" )
+    done
+    tarball_pathname="${staging_area%/}/evidence_log_files_$(timestamp).tbz2"
+    j_msg "-${notice}" -mp ""
+    j_msg "-${notice}" -p "target tarball:"
+    j_msg "-${notice}" -m "[$tarball_pathname]"
+    j_msg "-${notice}" -mp ""
+    j_msg "-${notice}" -p -n "preparing log_file tarball"
+    tar -C /var/log/portage -cvjpf "${tarball_pathname}" "${log_files[@]}" >/dev/null 2>&1
+    right_status $? "$notice"
+    j_msg "-${notice}" -p -n "setting permissions on tarball"
+    chown joe:joe "${tarball_pathname}"
+    right_status $? "$notice"
+}
 
 dump_fileset() {
     [ "$1" = "-h" ] && {
@@ -14,7 +227,7 @@ dump_fileset() {
     # ls -alrt /tmp/
     local last_ts="${1:-$(latest_ts)}"
     local archive_dir="${2:-/tmp/}"
-    local x="" msg="" heading=""
+    local x=""
     local template="test-harness-"
     local -a file_list
     is_valid_timestamp "$last_ts" ||
@@ -26,6 +239,8 @@ dump_fileset() {
     find_args+=( -printf '%p\n' )   #.......................# print path (date-sortable b/c ts in in filename)
 
     # similarly in an array, define awk block to prefix input stream lines with sorting weight
+    # shell check is not awk aware ' ... ' is awk script
+    # shellcheck disable=SC2016
     awk_cmd=(awk '
         # use BEGIN block to prepare sorting weighte
         BEGIN {
@@ -66,10 +281,6 @@ dump_fileset() {
         # shellcheck disable=SC2154#        printf '%s\n' "$(full_repeat "$bin_uH_double" "${#x}")"
         printf '\n%s%s%s\n' "${Con}" "$x" "${Boff}"
         printf '%s%s%s\n' "${BBon}" "$(full_repeat "$bin_uH_double" "${#x}")" "${Boff}" 
-#        # generate a heading for separator - basename of file; strip template from prefix; strip timestamp from suffix
-#        heading="$( printf '%s\n' "${x##*/}" | sed "s|^${template}||" | sed "s|-${last_ts}$||" )"
-#        separator "type:" "$heading"
-#        j_msg "-${notice}" -m "${BAon}archive_dir: ${Boff}${Con}${archive_dir}${Boff}"
         cat -- "$x"
     done
 }
@@ -160,6 +371,8 @@ discover_and_validate_ts() {
         candidate_ts="${status_file##*test-harness-status-}"
         if is_valid_timestamp "$candidate_ts"; then
             result=0
+            # shell check cannot know this vaiable is global to the script sourcing this header
+            # shellcheck disable=SC2034
             ts="$candidate_ts"
         else
             result=$?
