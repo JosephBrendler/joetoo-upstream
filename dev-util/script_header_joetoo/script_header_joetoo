@@ -4773,7 +4773,7 @@ swr() # (POSIX) use pur() to check first; then ssh when netcat indicates port is
   if nc -z -w 1 "$_swr_target" "$_ssh_port" 2>/dev/null; then
     RCP; EL; j_msg -${notice} "${BGon}OK${Boff} - $_swr_target sshd is ready"
     ssh_wrapper -p "$_ssh_port" "$_swr_target"
-    swr_ret=0
+    swr_ret=$?   # capture/report ssh_wrapper exit status, not just nc's
   else
     RCP; EL; j_msg -${err} "sshd port $_ssh_port on $_swr_target not responding after $_swr_max_retries tries"
     swr_ret=1
