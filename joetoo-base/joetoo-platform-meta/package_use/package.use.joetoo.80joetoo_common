@@ -135,6 +135,7 @@ sys-apps/sysvinit nls
 #>=dev-python/pillow-11.3.0 -truetype
 #>=media-libs/harfbuzz-11.4.5 -introspection -glib
 #>=dev-libs/libsodium-1.0.20_p20180606 -verify-sig
+=dev-python/pypi-attestations-0.0.30 -verify-provenance
 
 # until openvpn upstream gets itself signed right
 net-vpn/openvpn -verify-sig
@@ -148,3 +149,9 @@ dev-python/* verify-provenance
 # for app-emulation/libvirt
 >=net-dns/dnsmasq-2.93::gentoo script
 >=net-libs/gnutls-3.8.13::gentoo pkcs11 tools
+
+# for libgpiod (introspection -> glib)
+>=dev-libs/libgpiod-2.3.1-r1::gentoo cxx dbus introspection tools glib
+
+# for php (qt6 -> doc)
+>=dev-libs/uriparser-1.0.2::gentoo qt6 unicode doc
