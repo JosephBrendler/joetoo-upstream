@@ -196,6 +196,11 @@ compile_ansi_controls() {
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # loop through named chars in associative array of ansi controls and write e.g. BEL='<007_byte>' to ansi temp file
     for ctrl in "${!ansi_controls[@]}"; do
+        # first make the assignment in this shell, because SED_LOG_FILTER is going to need them
+        # use bash native print-to-variable to safely cook the raw byte
+        printf -v "$ctrl" "%b" "${ansi_controls[$ctrl]}"
+        # now create an entry in the ansi temp file will will be appended to script_header_joetoo_uiassets
+        # (to make this same assignment in users shell or scripts)
         j_msg "-${info}" -p -n "creating bytecode for ansi_control ..."
         if printf '%s=%s%b%s\n' "${ctrl}" "'" "${ansi_controls[${ctrl}]}" "'" >> "$ansi_tmp" 2>/dev/null; then result=0;else result=$?; fi
         handle_result "$result" '' '' "$info" || die "failed to render ctrl [${!ctrl}]"
@@ -231,12 +236,28 @@ compile_ansi_controls() {
     # replace structural whitespace and erasure control characters with a single space (to preserve "word" separation)
     # BS - Backspace (\x08): Replaces destructive cursor backsteps with a space to prevent text overlap
     # HT - Horizontal Tab (\x09): Normalizes column spacing by converting tab blocks into regular spaces
-    # LF - Line Feed (\x0A): flattens raw Unix newlines into spaces to keep log events on a single line
+##    # LF - Line Feed (\x0A): flattens raw Unix newlines into spaces to keep log events on a single line
     # VT - Vertical Tab (\x0B): Converts legacy vertical line skips into standard horizontal spaces
     # FF - Form Feed (\x0C): Clears page break signals and replaces them with a uniform space separator
     # CR - Carriage Return (\x0D): Neutralizes carriage resets to prevent subsequent text from overwriting lines
     # DEL - Delete (\x7F): Erases explicit backward-delete bytes while preserving the character boundaries
-    printf '    s/[%s%s%s%s%s%s%s]/ /g;\n' "${BS}" "${HT}" "${LF}" "${VT}" "${FF}" "${CR}" "${DEL}" >> "$log_filter_tmp"
+#    printf '    s/[%s%s%s%s%s%s%s]/ /g;\n' "${BS}" "${HT}" "${LF}" "${VT}" "${FF}" "${CR}" "${DEL}" >> "$log_filter_tmp"
+    # LF is a problem - breaks sed line-by-line processing in ash/busybox - so do it separately
+    printf '    s/[%s%s%s%s%s%s]/ /g;\n' "${BS}" "${HT}" "${VT}" "${FF}" "${CR}" "${DEL}" >> "$log_filter_tmp"
+
+    # now do the LF (newline) by using loop syntax to pull TWO lines to look at and drop the \n between
+    # :a -- creates a label named a that acts as an anchor that sed can jump back to
+    # N --- tells sed to append the NEXT line from the input stream (separated by a literal newline byte
+    # \$!ba -- this is a conditional jump instruction
+	# $ ------ means the last line of the input
+	# ! ------ means "is NOT"
+	# b ------ means branch (jump)
+	# \$!ba -- means "if this is not the last line of the file, jump back to label a"
+	# This loops over and over, continually gluing every single line of the input stream
+    # into one massive single-string memory block, preserving the raw LF bytes between them
+    # (instead of breaking the sed clause onto two lines), so the s/\\${LF}/ /g can remove them
+    printf '%s\n' '    :a;N;\$!ba;s/\\${LF}/ /g;' >> "$log_filter_tmp"
+
 }
 
 source_hdr_files() {

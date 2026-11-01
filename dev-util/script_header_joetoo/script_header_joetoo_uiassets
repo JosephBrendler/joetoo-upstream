@@ -383,8 +383,8 @@ bin_ZWJ='‍'
 SED_LOG_FILTER="
     s/[[0-9;]*[mKABCDHfsulJ]//g;
     s/[]//g;
-    s/[	
-]/ /g;
+    s/[	]/ /g;
+    :a;N;\$!ba;s/\\${LF}/ /g;
     s/⚠️/[WARNING]/g;
     s/🎲/[dice]/g;
     s/🛡️/[shield]/g;
