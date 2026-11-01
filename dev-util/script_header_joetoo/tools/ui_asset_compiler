@@ -34,7 +34,7 @@
 #      and before the first code that consumes anything they provide
 
 # UI Asset Heirarchy -
-#  three levels of obstraction
+#  three levels of abstraction
 #  1 - the full universe of ansi controls and unicode characters
 #      source: .txt and .html files distributed with unicode license
 #  2 - the subset of unicode characters that can be rendered by uecho $<name> and emoji_safe $<name>
@@ -53,7 +53,16 @@
 #    named zero-width/control Unicode
 #    inactive Unicode fallback
 
-source /usr/sbin/script_header_joetoo
+#-----[ variables ]--------------------------------------------------
+
+user="joe"
+perms="0644"   # permissions for output files
+sources_repository="/home/${user}/joetoo-upstream"
+
+#source /usr/sbin/script_header_joetoo ### <-- no!
+# set JOETOO_HEADER_DIR in order to source the developmental version of script_header_joetoo_unicode, etc
+JOETOO_HEADER_DIR="${sources_repository%/}/dev-util/script_header_joetoo"
+source "${JOETOO_HEADER_DIR%/}/script_header_joetoo"
 
 PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
 
@@ -61,11 +70,6 @@ if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1
 
 [ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
 
-#-----[ variables ]--------------------------------------------------
-
-user="joe"
-perms="0644"   # permissions for output files
-sources_repository="/home/${user}/joetoo-upstream"
 package_dir="${sources_repository%/}/dev-util/script_header_joetoo"
 tools_dir="${package_dir%/}/tools"
 output_registries="script_header_joetoo_registries"

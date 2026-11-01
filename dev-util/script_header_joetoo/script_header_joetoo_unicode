@@ -208,6 +208,8 @@ biohazard_legacy="\\U2623"
 biohazard="${biohazard_legacy}${VS16}"
 traffic_light_vertical="\\U1F6A6"
 traffic_light_horizontal="\\U1F6A5"
+information_legacy="\\U2139"
+information="${information_legacy}${VS16}"
 
 # stuff
 baloon="\\U1F388"
