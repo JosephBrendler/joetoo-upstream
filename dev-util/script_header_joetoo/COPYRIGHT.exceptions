@@ -35,3 +35,5 @@
 ./archive/testfile
 # script_header_joetoo_ssh contains a template for a script, which includes its own copyright notice
 ./script_header_joetoo_ssh
+# script_header_joetoo/tools/shellcheck_stub_compiler] contains multiple joetoo copyright statements
+./tools/shellcheck_stub_compiler

@@ -1,0 +1,188 @@
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# make_shellcheck_stubs.sh - Auto-compiler for script_header_joetoo linting stubs
+
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/script_header_joetoo/BUILD ]; then . /etc/script_header_joetoo/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
+
+#-----[ variables ]--------------------------------------------------
+
+user="joe"
+development_dir="/home/${user}/joetoo-upstream/dev-util/script_header_joetoo"
+target_var_stub="${development_dir%/}/script_header_joetoo.shellcheck_var_stub"
+target_func_stub="${development_dir%/}/script_header_joetoo.shellcheck_func_stub"
+
+# define list of headers to cover
+headers=(
+    script_header_joetoo
+    script_header_joetoo_uiassets
+    script_header_joetoo_unicode
+    script_header_joetoo_registries
+    script_header_joetoo_ssh
+    script_header_joetoo_compat
+    script_header_joetoo_extended
+)
+
+headers_str="${headers[*]}"
+
+varlist="PN BUILD bool.DEBUG verbosity user rlv.development_dir rlv.target_stub rlv.headers_str"
+
+#-----[ main script ]------------------------------------------------
+separator "$(hostname)" "${PN}-${BUILD}"
+show_config
+confirm_continue_or_exit
+
+j_msg "-${notice}" -p "Generating linting stub framework for variables"
+j_msg "-${info}" -p "target_var_stub: [$target_var_stub]"
+
+# Start with structural file metadata
+j_msg "-${info}" -p -n "Creating stub with metadata heading"
+cat << 'EOF' > "$target_var_stub"
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# script_header_joetoo.stub - ShellCheck look-ahead definition layer
+# *** Generated automatically by make_shellcheck_stubs.sh (Do not edit) ***
+# SC2034: Variable appears to be unused
+#   (disable when exporting, using externally, or dynamically referencing via namerefs (declare -n) or eval,
+#    which ShellCheck cannot always track.)
+# SC2120: Function references arguments, but the caller does not pass any
+#   (disable when arguments are optional, or if the function relies on default fallback values)
+# SC2329: This function is never invoked
+#   (disable when context is not checked)
+# shellcheck disable=SC2034,SC2120,SC2329
+
+# Define a function in which to make all the assignments, so that when
+# ShellCheck parses the stub header, they get only global scope registration as
+# recognized tokens that exist in an inactive function.
+# ShellCheck's parser still skims the function body and notes:
+# "The token bin_warning exists as a global symbol in this include tree."
+# This fulfills the requirement for Global Scope Registration and completely silences SC2154.
+# However, because the code path is wrapped inside a function that is never invoked,
+# ShellCheck's Extended Data-Flow Analysis engine flags the block as an inactive branch.
+# It completely skips building the deep, recursive timeline tracking trees for those variables.
+# Otherwise variables declared at script root shell level DO get tracked for recursion
+
+shellcheck_protection_function() {
+    # ---[ Pseudo-Booleans & Global Gating ]------------------------------------
+    TRUE=0
+    FALSE=""
+    JOETOO_ENVIRONMENT_ALREADY_SOURCED=0
+    JOETOO_FORCE_RELOAD=""
+    logFile=""
+    loglevel=5
+    verbosity=5
+    DEBUG=""
+    QUIET=""
+    LOGGING=""
+    INTERACTIVE=""
+    UNICODE_CAPABLE=0
+    UNICODE_DISABLE=""
+    PN=""
+    BUILD=""
+    user=""
+    varlist=""
+    answer=""
+    response=""
+    keyfile=""
+    edev=""
+
+EOF
+
+handle_result $? "$(wc -l < $target_var_stub) lines" "" "$info"
+
+j_msg "-${notice}" -p "Generating linting stub framework for functions"
+j_msg "-${info}" -p "target_func_stub: [$target_func_stub]"
+
+# Start with structural file metadata
+j_msg "-${info}" -p -n "Creating stub with metadata heading"
+cat << 'EOF' > "$target_func_stub"
+#!/bin/bash
+# Copyright 2014-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# script_header_joetoo.stub - ShellCheck look-ahead definition layer
+# *** Generated automatically by make_shellcheck_stubs.sh (Do not edit) ***
+# SC2034: Variable appears to be unused
+#   (disable when exporting, using externally, or dynamically referencing via namerefs (declare -n) or eval,
+#    which ShellCheck cannot always track.)
+# SC2120: Function references arguments, but the caller does not pass any
+#   (disable when arguments are optional, or if the function relies on default fallback values)
+# SC2329: This function is never invoked
+#   (disable when context is not checked)
+# shellcheck disable=SC2034,SC2120,SC2329
+
+# ---{ functions designed to terminate ]------------------------------------
+# do not use dummys for these, so shellcheck understands control structure
+usage() { printf '[stub usage]\n' >&2; leave; }
+die() { printf '[stub fatal] %s\n' "$*" >&2; exit 1; }
+leave() { printf '[stub exit] %s\n' "$*" >&2; exit 0; }
+
+EOF
+handle_result $? "$(wc -l < $target_func_stub) lines" "" "$info"
+
+
+
+# see regex abbreviations A0 ... W1 ... BF1 in script_header_joetoo
+
+# loop through each header
+for header in "${headers[@]}"; do
+    # extract this header's variable names into an array (strip ^ from F1 to put it prior to W0
+    j_msg "-${info}" -p -n "extracting [$header] variables"
+    var_pattern="^${W0}${F1#^}="
+    readarray -t variables < <(
+        grep -v "^${W0}#" "${development_dir%/}/${header}" |   # strip comments
+        grep -E "$var_pattern" |   #....# extract variable pattern matching lines
+        cut -d'=' -f1 |   #.............# strip = and after
+        sed "s/^${W0}//" |   #..........# strip leading whitespace
+        grep -v "^_" |   #..............# drop "localized" variables
+        sort -u   #.....................# deduplicate
+    )
+    handle_result $? "ingested [${#variables[@]}]" "" "$info"
+
+    # extract this header's variable names into an array (strip ^ from F1 to put it prior to W0
+    j_msg "-${info}" -p -n "extracting [$header] functions"
+    func_pattern="^${W0}${F1#^}\(\)"
+    readarray -t functions < <(
+        grep -v "^${W0}#" "${development_dir%/}/${header}" |   # strip comments
+        grep -E "$func_pattern" |   #...# extract function pattern matching lines
+        cut -d'(' -f1 |   #.............# strip ( and after
+        sed "s/^${W0}//" |   #..........# strip leading whitespace
+        grep -v "^_" |   #..............# drop "localized" helper functions
+        sort -u |  #....................# deduplicate
+        grep -E -v "usage|die|leave" #..# handled in heredoc above
+    )
+    handle_result $? "ingested [${#functions[@]}]" "" "$info"
+
+    # generate a colorless section marker in the stub header file
+    printf '    # ' >> "$target_var_stub"   # leave comment line unterminated and follow with separator
+    COLUMNS=80 separator "header:" "$header" | strip_ansi >> "$target_var_stub"
+    printf '# ' >> "$target_func_stub"   # leave comment line unterminated and follow with separator
+    COLUMNS=80 separator "header:" "$header" | strip_ansi >> "$target_func_stub"
+
+    # append dummy variable assignments for this header
+    j_msg "-${info}" -p -n "appending [$header] variables to var_stub"
+    for var in "${variables[@]}"; do printf "    %s=\"\"\n" "$var" >> "$target_var_stub"; done
+    handle_result $? "" "" "$info"
+
+    # append dummy function definitions for this header
+    j_msg "-${info}" -p -n "appending [$header] functions to func_stub"
+    for func in "${functions[@]}"; do printf "%s() { :; }\n" "$func" >> "$target_func_stub"; done
+    handle_result $? "" "" "$info"
+
+done
+
+# now append the terminating curly brace to the shellcheck_protection_function in the variables file
+j_msg "-${info}" -p -n "appending closing curly brace to var_stub"
+printf '\n}\n' >> "$target_var_stub"
+handle_result $? "" "" "$info"
+
+j_msg "-${notice}" -p "Done $bin_trophy"
