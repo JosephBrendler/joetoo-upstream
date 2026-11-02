@@ -225,6 +225,18 @@ choose_checker() {
     j_msg "-${debug}" -p "base_executable: $base_executable"
     case "$base_executable" in
         # for valid shells, use the executable with its noexec flag (just parse to check syntax)
+        # note: in openrc-run scripts, place # 'shellcheck shell=sh disable=SC1008'
+        # below shebang to suppress 'unknown shebang' error
+        openrc-run)
+            if [ $LINT ]; then
+                executable="$(command -v shellcheck)"
+                arguments=( -x -s "sh" ) # -x = follow sources; -s names the shell (e.g. bash)
+            else
+                # fall back to e.g. bash -n
+                executable=$(command -v "$(which sh)")
+                arguments=( -n )
+            fi
+            ;;
         sh|ash|bash|dash)
             if [ $LINT ]; then
                 executable="$(command -v shellcheck)"
@@ -333,7 +345,7 @@ normalize_cmdline "$@" || die "failed to normalize_cmdline"
 # set actual logic flags and environment variables based on flags[]
 parse_cmdline || die "failed to parse_cmdline"
 
-show_config || die "failed to show_config"
+d_do 'show_config || die "failed to show_config"' "$info"
 
 sanity_check || die "failed to sanity_check"
 
