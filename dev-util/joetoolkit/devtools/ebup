@@ -5,6 +5,8 @@
 # ebup - create an ebuild with version-upgraded filename
 #
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
@@ -51,23 +53,23 @@ load-ebuild_files() {
         j_msg "-${notice}" -p -n "updating SOURCE_DIR [$SOURCE_DIR]"
         SOURCE_DIR=$(pwd) || die "failed to set SOURCE_DIR to pwd"
         j_msg "-${notice}" -mp -n " (${BGon}${SOURCE_DIR##*/}${Boff})"   # display only basename for brevity
-        right_status $TRUE "${notice}"
+        right_status 0 "${notice}"
     elif [[ "$SOURCE_DIR" == ".." ]] ; then
         j_msg "-${notice}" -p -n "moving to .."
         cd .. || die "failed to move to .."
-        right_status $TRUE "${notice}"
+        right_status 0 "${notice}"
         j_msg "-${notice}" -p -n "updating SOURCE_DIR [$SOURCE_DIR]"
         SOURCE_DIR=$(pwd) || die "failed to set SOURCE_DIR to pwd"
         j_msg "-${notice}" -mp -n " (${BGon}${SOURCE_DIR##*/}${Boff})"   # display only basename for brevity
-        right_status $TRUE "${notice}"
+        right_status 0 "${notice}"
     elif [[ "$SOURCE_DIR" == *"/"* ]] ; then
         j_msg "-${notice}" -p -n "moving to .."
         cd "$SOURCE_DIR" || die "failed to move to [$SOURCE_DIR]"
-        right_status $TRUE "${notice}"
+        right_status 0 "${notice}"
         j_msg "-${notice}" -p -n "updating SOURCE_DIR [$SOURCE_DIR]"
         SOURCE_DIR=$(pwd) || die "failed to set SOURCE_DIR to pwd"
         j_msg "-${notice}" -mp -n " (${BGon}${SOURCE_DIR##*/}${Boff})"   # display only basename for brevity
-        right_status $TRUE "${notice}"
+        right_status 0 "${notice}"
     else
         [ ! -d "$SOURCE_DIR" ] && die "SOURCE_DIR [$SOURCE_DIR] does not exist"
     fi
@@ -90,8 +92,8 @@ load-ebuild_files() {
     # return to old_dir
     j_msg "-${notice}" -m -n "moving back to old_dir [$old_dir]"
     cd "$old_dir" || die "failed to cd to old_dir"
-    right_status $TRUE "${notice}"
-    return $_lef_ret
+    right_status 0 "${notice}"
+    return "$_lef_ret"
 }
 
 get-current-version() {
@@ -125,7 +127,7 @@ get-current-version() {
     j_msg "-${notice}" -m "  current major: ${current_version_numbers[0]}"
     j_msg "-${notice}" -m "  current minor: ${current_version_numbers[1]}"
     j_msg "-${notice}" -m "  current patch: ${current_version_numbers[2]}"
-    return $_gcv_ret
+    return "$_gcv_ret"
 }
 
 get-archive-ebuild() {
@@ -149,7 +151,7 @@ get-archive-ebuild() {
         _gae_ret=$?
         j_msg "-${notice}" -p "${Ron}archive ebuild${Boff}: [${to_be_archived_ebuild}]"
     fi
-    return $_gae_ret
+    return "$_gae_ret"
 }
 
 calculate-new-version() {
@@ -183,7 +185,7 @@ calculate-new-version() {
     new_ebuild_version="${new_version_numbers[0]}.${new_version_numbers[1]}.${new_version_numbers[2]}"
     _cnv_ret=$?
     j_msg "-${notice}" -p "${Gon}new version${Boff}: ${new_ebuild_version}"
-    return $_cnv_ret
+    return "$_cnv_ret"
 }
 
 archive-old-ebuild() {
@@ -222,7 +224,7 @@ archive-old-ebuild() {
         j_msg "-${err}" -p "Error: ebuild [${archive_ebuild_filename}] not found"
         _aoe_ret=13
     fi
-    return $_aoe_ret
+    return "$_aoe_ret"
 }
 
 create-new-ebuild() {
@@ -255,7 +257,7 @@ edit-new-ebuild() {
         [nN] ) j_msg "-${err}" -p "Aborting as instructed" ; return 1;;
         *    ) j_msg "-${err}" -p "Invalid response [$response]" ; return 1;;
     esac
-    return $_ene_ret
+    return "$_ene_ret"
 }
 
 pkgdev_manifest_new-ebuild() {
@@ -270,7 +272,7 @@ pkgdev_manifest_new-ebuild() {
         [nN]*) j_msg "-${err}" -p "Aborting as instructed" ; return 1;;
         *) j_msg "-${err}" -p "Invalid response [$response]" ; return 1;;
     esac
-    return $_pmn_ret
+    return "$_pmn_ret"
 }
 
 maybe_dump_ebuilds() {
@@ -321,7 +323,7 @@ pkgdev_manifest_new-ebuild || die "failed to pkgdev_manifest_new-ebuild"
 
 j_msg "-${notice}" -m -n "moving back to old_dir [$old_dir]"
 cd "$old_dir" || die "failed to cd to old_dir"
-right_status $TRUE "${notice}"
+right_status 0 "${notice}"
 
 j_msg "-${notice}" -p "${BGon}Done${Boff}"
 

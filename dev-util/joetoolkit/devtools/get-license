@@ -4,7 +4,8 @@
 #
 # get-license - get the authoritative text of a SPDX license
 
-# shellcheck source=/usr/sbin/script_header_joetoo
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}
@@ -16,12 +17,16 @@ if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1
 #-----[ variables ]--------------------------------------------------
 user="joe"
 sources_repository="/home/${user}/joetoo-upstream"
-editor="/bin/nano"
 tmp=""   #..............# initialize for name of tempfile in which to receive download (assigned with mktmp below)
 licenseID=""   #........# initialize for license name (assigned from $1 below)
 declare -a results=()   # initialize for pipline results (assigned from ${PIPESTATUS[@]} below)
+
+# script_header_joetoo uses varlist - but ShellCheck cannot follow it in stub
+# shellcheck disable=SC2034
 logFIle="/var/log/${PN}.log"
 
+# show_config uses varlist - but ShellCheck cannot follow it in stub
+# shellcheck disable=SC2034
 varlist="PN BUILD user rlv.logFile rlv.sources_repository licenseID bool.INTERACTIVE bool.DEBUG bool.LOGGING"
 
 #-----[ functions ]--------------------------------------------------

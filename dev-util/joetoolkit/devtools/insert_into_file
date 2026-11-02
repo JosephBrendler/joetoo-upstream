@@ -2,7 +2,8 @@
 # Copyright 2025-2026 Joseph Brendler
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# shellcheck source=/usr/sbin/script_header_joetoo
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   # basename
@@ -90,7 +91,7 @@ re_initialize_variables() {
     export output=()
     right_status $? "${info}" || FLAGGED=$TRUE
 
-    [ $FLAGGED ] && return 1 || return 0
+    [ "$FLAGGED" ] && return 1 || return 0
 }
 
 display_config() {

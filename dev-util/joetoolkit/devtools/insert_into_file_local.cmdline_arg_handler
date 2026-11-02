@@ -12,19 +12,26 @@
 #   set result=7 for file not found (to differentiate from error)
 #   set result = 1  for error
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+#. /usr/sbin/script_header_joetoo
+# uncomment above and disable below for thorough ShellCheck only - parent sources it and this file
+# SC2154: Variable is referenced but not assigned
+# shellcheck disable=SC2154
+
 handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_header_joetoo
 { hla_ret=0; _hla_arg="$1"; _hla_operand="$2"
   j_msg "-${info}" -p "in handle_local_arg with _hla_arg: [$_hla_arg], _hla_operand: [$_hla_operand]"
   case "$_hla_arg" in
     "-"[pP] | "--pretend"  )
       # example 1
-      export PRETEND=${TRUE}; hla_ret=$?
-      j_msg "-${debug}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      export PRETEND="$TRUE"; hla_ret=$?
+      j_msg "-${debug}" -m "${BYon}set PRETEND = $(status_color "$PRETEND")$(TrueFalse "$PRETEND") ${Boff}"
       ;;
     "-"[wW] | "--write" )
       # example 2
-      export PRETEND=${FALSE}; hla_ret=$?
-      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      export PRETEND="$FALSE"; hla_ret=$?
+      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color "$PRETEND")$(TrueFalse "$PRETEND") ${Boff}"
       ;;
 #    "-"[oO] | "--output" )   # example for handling argument to option
 #      # myOperand is a global variable, assigned here
@@ -45,7 +52,7 @@ handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_
   esac
   j_msg "-${debug}" -p "handle_local_arg complete, returning [$hla_ret]"
   unset -v _hla_arg _hla_operand _hla_result
-  return $hla_ret
+  return "$hla_ret"
 }
 # @usage handle_local_arg (called from script_header_joetoo)
 # @args $1=current arg, $2=potential operand
@@ -57,17 +64,19 @@ handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_
 handle_local_compound_arg() # (POSIX) local compound arg handler to extend cli in script_header_joetoo
 { hlca_ret=0; _hlca_char="$1" # Get the first character of the parent's _pca_args directly as $1 now
 #{ hlca_ret=0; _hlca_char="${_pca_args%${_pca_args#?}}" # Get the first character of _pca_args
+  # _pca_args is in script_header_joetoo, but stub file does not include _x localized helper vars
+  # shellcheck disable=SC2154
   j_msg "-${debug}" -p "in handle_local_compound_arg with _pca_args: [$_pca_args], _hlca_char: [$_hlca_char]"
   case "$_hlca_char" in
     [pP] )
       # example 1
-      export PRETEND=${TRUE}; hlca_ret=$?
-      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      export PRETEND="$TRUE"; hlca_ret=$?
+      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color "$PRETEND")$(TrueFalse "$PRETEND") ${Boff}"
       ;;
     [wW] )
       # example 2
-      export PRETEND=${FALSE}; hlca_ret=$?
-      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color ${PRETEND})$(TrueFalse ${PRETEND}) ${Boff}"
+      export PRETEND="$FALSE"; hlca_ret=$?
+      j_msg "-${info}" -m "${BYon}set PRETEND = $(status_color "$PRETEND")$(TrueFalse "$PRETEND") ${Boff}"
       ;;
     *    )
       # NOTICE: getting here does not mean error - it just means no single flag option matched,
@@ -78,7 +87,7 @@ handle_local_compound_arg() # (POSIX) local compound arg handler to extend cli i
   esac
   j_msg "-${debug}" -p "handle_local_compound_arg complete, returning [$hlca_ret]"
   unset -v _hlca_char
-  return $hlca_ret
+  return "$hlca_ret"
 }
 # @usage handle_local_compound_arg (called from script_header_joetoo)
 # @ret 0: successful action option for flag identified, 1: error, 7: file not found

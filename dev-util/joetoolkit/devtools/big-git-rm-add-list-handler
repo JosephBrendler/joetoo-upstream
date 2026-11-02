@@ -4,6 +4,9 @@
 #
 # filter output of "git status" and automatically act on it
 #
+
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
@@ -59,8 +62,10 @@ read_changes()   # (Bash) read scoped git status records into array
     if readarray -d '' -t changes < <( git "${git_args[@]}" ); then result=0; else result=$?; fi
     handle_result "$result" "ingested: [${#changes[@]}]" "" "$notice" || die "failed to read git status into array"
     [ "${#changes[@]}" -eq 0 ] && die "${FUNCNAME[0]} ingested no git status records; nothing to do"
-    j_msg "-${debug}" -p "git_args: [${git_args[@]}]"
+    j_msg "-${debug}" -p "git_args: [${git_args[*]}]"
     j_msg "-${debug}" -p "dumping changes array --"
+    # ShellCheck says things in single quotes dont expand, but that is the point for d_do
+    # shellcheck disable=SC2016
     d_do 'printf "%s\n" "${changes[@]}"' "$debug"
     j_msg "-${debug}" -p "returning from ${FUNCNAME[0]}; exit status: [$result]"
     return $result

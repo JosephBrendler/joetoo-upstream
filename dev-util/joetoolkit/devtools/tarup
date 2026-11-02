@@ -19,6 +19,8 @@
 # @rule archives the oldest existing tarball before creating the new tarball
 # @note zero existing tarballs is a valid first-release condition
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
