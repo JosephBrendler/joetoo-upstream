@@ -349,7 +349,7 @@ d_do 'show_config || die "failed to show_config"' "$info"
 
 sanity_check || die "failed to sanity_check"
 
-confirm_continue_or_exit
+d_do confirm_continue_or_exit "$info"
 
 # record start time at millisecond resolution
 # ( %s is seconds since epoch; %3N is first three digits of nanosecond field )
