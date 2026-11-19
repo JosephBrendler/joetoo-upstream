@@ -4,7 +4,8 @@
 #
 # clear_gnupg_locks.sh - clear/reset locks and processes for gnupg
 
-# shellcheck source=/usr/sbin/script_header_joetoo
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 checkroot

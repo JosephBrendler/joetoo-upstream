@@ -8,10 +8,10 @@ TARGETS=(
     'armv6j-unknown-linux-gnueabihf'
     'armv7a-unknown-linux-gnueabihf'
 )
-yes | for TARGET in ${TARGETS[@]}; do
-    crossdev -C -t ${TARGET};
+yes | for TARGET in "${TARGETS[@]}"; do
+    crossdev -C -t "${TARGET}";
 done && \
 \
-for TARGET in ${TARGETS[@]}; do
-    crossdev -S -t ${TARGET};
+for TARGET in "${TARGETS[@]}"; do
+    crossdev -S -t "${TARGET}";
 done

@@ -7,10 +7,12 @@
 # create a smartly rank-ordered draft ${hosts_file} file AND a recommended MAKEOPTS=
 #   assignment for the local host (distcc client) /etc/portage/make.conf
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 header="/usr/sbin/script_header_joetoo"
 source "${header}"
 if command -v j_msg; then
-  j_msg -${notice} -p "${BGon}success${Boff}: sourced ${header}; passed function check"
+  j_msg "-${notice}" -p "${BGon}success${Boff}: sourced ${header}; passed function check"
 else
   printf '%s\n' "failed function check after sourcing ${header}; cannot continue"
   exit 1
@@ -18,7 +20,7 @@ fi
 header="/usr/sbin/script_header_joetoo_extended"
 source "${header}"
 if command -v extract_distccd_settings; then
-  j_msg -${notice} -p "${BGon}success${Boff}: sourced ${header}; passed function check"
+  j_msg "-${notice}" -p "${BGon}success${Boff}: sourced ${header}; passed function check"
 else
   printf '%s\n' "failed function check after sourcing ${header}; cannot continue"
   exit 1
@@ -55,7 +57,7 @@ PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
 
 if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
 
-[ -z $verbosity ] && verbosity=${notice}  # assign default if null; allow calling program to dictate
+[ -z "$verbosity" ] && verbosity="${notice}"  # assign default if null; allow calling program to dictate
 
 varlist="user dns domain joetoo_ula_prefix joetoo_ip4_prefix"
 varlist="${varlist} rlv.dns_ddns_hosts_file rlv.dns_vpn_hosts_file"
@@ -95,53 +97,53 @@ usage() {
   local _u_format="     ${BMon}-%-1s${Boff}, ${BMon}--%-19s${Boff}%-40s"
   local _u_indent=30
 
-  j_msg -${notice} -p "${BRon}Usage${Boff}: $PN [options]"
-  j_msg -${notice} -p "${BYon}Options${Boff}:"
+  j_msg "-${notice}" -p "${BRon}Usage${Boff}: $PN [options]"
+  j_msg "-${notice}" -p "${BYon}Options${Boff}:"
 
   # -e / --existing
   msg=$(printf "$_u_format" "e" "existing ........." "Use existing ${hosts_file} (default)")
-  j_msg -${notice} -mp "$msg"
+  j_msg "-${notice}" -mp "$msg"
 
   # -c / --config [file]
   msg=$(printf "$_u_format" "H" "hosts [file] ....." "Use specified hosts file; if no file given,")
-  j_msg -${notice} -mp "$msg"
-  CUF ${_u_indent}; j_msg -${notice} -mp "defaults to ${hosts_file}"
+  j_msg "-${notice}" -mp "$msg"
+  CUF "${_u_indent}"; j_msg "-${notice}" -mp "defaults to ${hosts_file}"
 
   # -d / --discover [subnet]
   msg=$(printf "$_u_format" "d" "discover ........" "Discover distcc servers")
-  j_msg -${notice} -mp "$msg"
+  j_msg "-${notice}" -mp "$msg"
 
   # -t / --top [N]
   msg=$(printf "$_u_format" "t" "top [N] .........." "Limit ranked host list and MAKEOPTS to top N servers")
-  j_msg -${notice} -mp "$msg"
-  CUF ${_u_indent}; j_msg -${notice} -mp "If N omitted, defaults to 10"
+  j_msg "-${notice}" -mp "$msg"
+  CUF "${_u_indent}"; j_msg "-${notice}" -mp "If N omitted, defaults to 10"
 
   # -v / --louder (increase verbosity)
   msg=$(printf "$_u_format" "v" "louder ..........." "Increase verbosity (may repeat)")
-  j_msg -${notice} -mp "$msg"
+  j_msg "-${notice}" -mp "$msg"
 
   # -q / --quieter (decrease verbosity)
   msg=$(printf "$_u_format" "q" "quieter .........." "Decrease verbosity (may repeat)")
-  j_msg -${notice} -mp "$msg"
+  j_msg "-${notice}" -mp "$msg"
 
   # -Q / --quiet (silence)
   msg=$(printf "$_u_format" "Q" "quiet ............" "Silence most output (script_header_joetoo quiet mode)")
-  j_msg -${notice} -mp "$msg"
+  j_msg "-${notice}" -mp "$msg"
 
   # -D / --debug
   msg=$(printf "$_u_format" "D" "debug ............" "Enable debug output")
-  j_msg -${notice} -mp "$msg"
+  j_msg "-${notice}" -mp "$msg"
 
   # -h / --help
   msg=$(printf "$_u_format" "h" "help ............." "Show this help message")
-  j_msg -${notice} -mp "$msg"
+  j_msg "-${notice}" -mp "$msg"
 
-  j_msg -${notice} -mp ""
+  j_msg "-${notice}" -mp ""
 }
 
 discover_distcc_hosts() {
     dd_ret=0
-    j_msg -${debug} -p "in ${FUNCNAME[0]}"
+    j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # reset global discovered structures
     discovered_host_of_addr=()
     discovered_addr_of_host=()
@@ -150,7 +152,7 @@ discover_distcc_hosts() {
     declare -A candidates_host_of_addr=()   # addr → host
     declare -A candidates_addr_of_host=()   # host → addr1|addr2|...
     # load both DDNS + VPN host files (authoritative hostnames for ipv6 dmz and ipv4 dmz/vpn)
-    j_msg -${debug} -p "reading DDNS + VPN host files ..."
+    j_msg "-${debug}" -p "reading DDNS + VPN host files ..."
     while read -r addr host _; do
         # format for both files is "addr name # iface comments" - just get $1 and $2
         [[ -z "$addr" || -z "$host" ]] && continue
@@ -158,12 +160,12 @@ discover_distcc_hosts() {
         candidates_host_of_addr["$addr"]="$host"
         candidates_addr_of_host["$host"]="${candidates_addr_of_host[$host]:+${candidates_addr_of_host[$host]}|}$addr"
     done < <(ssh -q "$dns" "awk '{print \$1, \$2}' '$dns_ddns_hosts_file' '$dns_vpn_hosts_file'")
-    j_msg -${debug} -p -n "done reading DDNS + VPN host files; result:"
-    handle_result $? "" "" ${debug} || dd_ret=1   # bit 0 = failed to read DDNS + VPN hosts
+    j_msg "-${debug}" -p -n "done reading DDNS + VPN host files; result:"
+    handle_result $? "" "" "${debug}" || dd_ret=1   # bit 0 = failed to read DDNS + VPN hosts
     # load dnsmasq.leases (authoritative IPv4 address source for dmz);
     # (incomplete for hostnames; may be '*' → must query host directly)
     # format is "timestamp mac addr name duid" - just get $3 and $4 via "_ _ ipv4 lease_host"
-    j_msg -${debug} -p "reading dnsmasq.leases ..."
+    j_msg "-${debug}" -p "reading dnsmasq.leases ..."
     while read -r _ _ ipv4 lease_host _; do
         [[ -z "$ipv4" ]] && continue
         # policy allows clients to only tell the dns their hostname on one interface
@@ -180,11 +182,11 @@ discover_distcc_hosts() {
         candidates_host_of_addr["$ipv4"]="$host"
         candidates_addr_of_host["$host"]="${candidates_addr_of_host[$host]:+${candidates_addr_of_host[$host]}|}$ipv4"
     done < <(ssh "$dns" "awk '{print \$3, \$4}' /var/lib/misc/dnsmasq.leases")
-    j_msg -${debug} -p -n "done reading dnsmasq.leases; result:"
-    handle_result $? "" "" ${debug} || dd_ret=$(( dd_ret + 2 ))   # bit 1 = failed to read dnsmasq.leases
+    j_msg "-${debug}" -p -n "done reading dnsmasq.leases; result:"
+    handle_result $? "" "" "${debug}" || dd_ret=$(( dd_ret + 2 ))   # bit 1 = failed to read dnsmasq.leases
 
-    j_msg -${debug} -p "candidate hosts: \${!candidates_addr_of_host[*]}"
-    j_msg -${debug} -m "candidate hosts: ${!candidates_addr_of_host[*]}"
+    j_msg "-${debug}" -p "candidate hosts: \${!candidates_addr_of_host[*]}"
+    j_msg "-${debug}" -m "candidate hosts: ${!candidates_addr_of_host[*]}"
     # probe each candidate address for distccd
     for addr in "${!candidates_host_of_addr[@]}"; do
         host="${candidates_host_of_addr[$addr]}"
@@ -207,26 +209,26 @@ discover_distcc_hosts() {
                 ;;
         esac
         if [ "$PROBE_OK" ]; then
-            j_msg -${debug} -p "distccd reachable at [$addr] ($host)"
+            j_msg "-${debug}" -p "distccd reachable at [$addr] ($host)"
             discovered_host_of_addr["$addr"]="$host"
             discovered_addr_of_host["$host"]="${discovered_addr_of_host[$host]:+${discovered_addr_of_host[$host]}|}$addr"
         else
-            j_msg -${debug} -p "no distccd at [$addr] ($host)"
+            j_msg "-${debug}" -p "no distccd at [$addr] ($host)"
         fi
     done
     # build final hostname list for downstream use
     if ((${#discovered_addr_of_host[@]})); then
-        j_msg -${debug} -p -n "building discovered_hosts from \${!discovered_addr_of_host[@]} ..."
+        j_msg "-${debug}" -p -n "building discovered_hosts from \${!discovered_addr_of_host[@]} ..."
         mapfile -t discovered_hosts < <(printf '%s\n' "${!discovered_addr_of_host[@]}" | sort)
-        handle_result $? "" "" ${debug} || dd_ret=$(( dd_ret + 4 ))   # bit 2 = failed build discovered_hosts array
-        j_msg -${notice} -p "discovered distcc servers: ${discovered_hosts[*]}"
+        handle_result $? "" "" "${debug}" || dd_ret=$(( dd_ret + 4 ))   # bit 2 = failed build discovered_hosts array
+        j_msg "-${notice}" -p "discovered distcc servers: ${discovered_hosts[*]}"
     else
-        j_msg -${warn} -p "no distcc servers discovered"
+        j_msg "-${warn}" -p "no distcc servers discovered"
         dd_ret=$(( dd_ret + 8 ))   # bit 3 = no hosts discovered
     fi
-    j_msg -${warn} -m "Discovery only finds hosts reachable at scan time."
-    j_msg -${notice} -p "done discovery; exit status [$dd_ret]"
-    return $dd_ret
+    j_msg "-${warn}" -m "Discovery only finds hosts reachable at scan time."
+    j_msg "-${notice}" -p "done discovery; exit status [$dd_ret]"
+    return "$dd_ret"
 }
 
 parse_cmdline() {
@@ -234,9 +236,9 @@ parse_cmdline() {
   # normalize long options to short equivalents
   local normalized=()
   # loop-shift through positional parameters; if token is --flag, "normalize" to -f; put all in array
-  j_msg -${debug} -p "(pc)(n) normalizing positional parameters ..."
+  j_msg "-${debug}" -p "(pc)(n) normalizing positional parameters ..."
   while [[ $# -gt 0 ]]; do
-    j_msg -${debug} -p "(pc)(n) normalizing $1"
+    j_msg "-${debug}" -p "(pc)(n) normalizing $1"
     case "$1" in
       --existing)   normalized+=("-e") ;;
       --hosts)      normalized+=("-H") ;;
@@ -252,7 +254,7 @@ parse_cmdline() {
     esac
     shift
   done
-  j_msg -${debug} -p "(pc)(n) normalized array: (${normalized[@]})"
+  j_msg "-${debug}" -p "(pc)(n) normalized array: (${normalized[@]})"
   # reset positional parameters from normalized array
   set -- "${normalized[@]}"
   # pre-define a dynamic macro for adjusting verbosity (used by script_header_joetoo's _pc_action_verbosity
@@ -265,7 +267,7 @@ parse_cmdline() {
         DISCOVER=$FALSE
         hosts_file="/etc/distcc/hosts"
         shift
-        j_msg -${debug} -p "(pc)(e) set DISCOVER=\$FALSE, hosts_file=default, shifted 1"
+        j_msg "-${debug}" -p "(pc)(e) set DISCOVER=\$FALSE, hosts_file=default, shifted 1"
         pc_ret=$?
         ;;
       -H)  # (hosts) optional argument: if next token exists and is not an option, treat as file
@@ -274,11 +276,11 @@ parse_cmdline() {
         #   if $2 is not empty and also not an option flag (leading -) ...
         if [[ -n "${2:-}" && "$2" != -* ]]; then
           hosts_file="$2"
-          j_msg -${debug} -p "(pc)(c2) set DISCOVER=\$FALSE, hosts_file=$2, shifting 2"
+          j_msg "-${debug}" -p "(pc)(c2) set DISCOVER=\$FALSE, hosts_file=$2, shifting 2"
           shift 2
         else
           hosts_file="/etc/distcc/hosts"
-          j_msg -${debug} -p "(pc)(c1) set DISCOVER=\$FALSE, hosts_file=default, shifting 1"
+          j_msg "-${debug}" -p "(pc)(c1) set DISCOVER=\$FALSE, hosts_file=default, shifting 1"
           shift
         fi
         pc_ret=$?
@@ -286,7 +288,7 @@ parse_cmdline() {
       -d)  # (discover) no arg [just use dns data]
         DISCOVER=$TRUE
         hosts_file="/etc/distcc/hosts"
-        j_msg -${debug} -p "(pc)(d) set DISCOVER=\$TRUE, hosts_file=default, shifting 1"
+        j_msg "-${debug}" -p "(pc)(d) set DISCOVER=\$TRUE, hosts_file=default, shifting 1"
         shift
         pc_ret=$?
         ;;
@@ -297,36 +299,36 @@ parse_cmdline() {
         #   if $2 is not empty and also not an option flag (leading -) ...
         if [[ -n "${2:-}" && "$2" != -* ]]; then
           if isint $2; then hostlist_cap="$2"; else j_msg -${err} "hostlist_cap: must be integer"; exit 1; fi
-          j_msg -${debug} -p "(pc)(t2) set hostlist_cap=$2; shifting 2"
+          j_msg "-${debug}" -p "(pc)(t2) set hostlist_cap=$2; shifting 2"
           shift 2
         else
           # user directed a cap on host list but did not specify number - default to 10
           hostlist_cap=10
-          j_msg -${debug} -p "(pc)(d1) user specified cap but not N; set hostlist_cap=10; shifting 1"
+          j_msg "-${debug}" -p "(pc)(d1) user specified cap but not N; set hostlist_cap=10; shifting 1"
           shift
         fi
         pc_ret=$?
         ;;
       -Q)  # (silence) using using script_header_joetoo _pc_action_quiet
         _pc_action_quiet
-        j_msg -${debug} -p "(pc)(Q) ran _pc_action_quiet; shifting 1"
+        j_msg "-${debug}" -p "(pc)(Q) ran _pc_action_quiet; shifting 1"
         shift; pc_ret=$? ;;
       -D)  # (debug)
-        export DEBUG=$TRUE; j_msg -${debug} -p "(pc)(D) set DEBUG=\$TRUE; shifting 1"; shift; pc_ret=$? ;;
+        export DEBUG=$TRUE; j_msg "-${debug}" -p "(pc)(D) set DEBUG=\$TRUE; shifting 1"; shift; pc_ret=$? ;;
       -v)  # (increase verbosity) using script_header_joetoo _pc_action_verbosity
         _pc_operator="+"; _pc_action_verbosity
-        j_msg -${debug} -p "(pc)(v) ran _pc_action_verbosity (op: +); shifting 1"
+        j_msg "-${debug}" -p "(pc)(v) ran _pc_action_verbosity (op: +); shifting 1"
         shift; pc_ret=$? ;;
       -q)  # (decrease verbosity) using script_header_joetoo _pc_action_verbosity
         _pc_operator="-"; _pc_action_verbosity
-        j_msg -${debug} -p "(pc)(q) ran _pc_action_verbosity (op: -); shifting 1"
+        j_msg "-${debug}" -p "(pc)(q) ran _pc_action_verbosity (op: -); shifting 1"
         shift ; pc_ret=$? ;;
       *)  # (invalid) print usage message; exit 1
         j_msg -${err} "(pc)(*) Unknown option: $1"; usage; exit 1 ;;
     esac
   done
-  j_msg -${debug} "done parse_cmdline; exit status [$pc_ret]"
-  return $pc_ret
+  j_msg "-${debug}" "done parse_cmdline; exit status [$pc_ret]"
+  return "$pc_ret"
 }
 
 # calculate the job limit for a single host
@@ -354,8 +356,8 @@ draft_etc_distcc_hosts() {
   # %-10s: left-aligned string, 10 characters wide
   format="%s %-15s %-10s %-10s %s\n"
 
-  j_msg -${notice} -mp "\n" # double newline
-  j_msg -${notice} -p "${BYon}Collecting data for distcc server farm ...${Boff}\n"
+  j_msg "-${notice}" -mp "\n" # double newline
+  j_msg "-${notice}" -p "${BYon}Collecting data for distcc server farm ...${Boff}\n"
   printf "$format" "${BCon}${RVon}" "hostname" "sysbench" "joblimit" "${Boff}"
   printf "$format" "${Con}" "--------" "--------" "--------" "${Boff}"
 
@@ -383,10 +385,10 @@ draft_etc_distcc_hosts() {
   # into an array (just the hostnames), OR load the discovered hostnames array
   _this_host=$(hostname)
   if [ "$DISCOVER" ]; then
-    j_msg -$notice -p "DISCOVER mode active; using names of discovered hosts"
+    j_msg "-${notice}" -p "DISCOVER mode active; using names of discovered hosts"
     hosts=( "${discovered_hosts[@]}" )
   else
-    j_msg -$debug -p "DISCOVER mode inactive; loading names from existing hosts_file [$hosts_file]"
+    j_msg "-${debug}" -p "DISCOVER mode inactive; loading names from existing hosts_file [$hosts_file]"
     # filter the list of hosts in the existing hosts file -
     # grep -Ev "^#|^${W0}$" strips comments and blank lines
     # sed -E "s/^${W0}//; l-trims leading whitespace
@@ -400,7 +402,7 @@ draft_etc_distcc_hosts() {
   fi
 
   if [[ "${#hosts[@]}" -eq 0 ]]; then
-    j_msg -${warn} "No distcc hosts found in ${hosts_file} (excluding localhost)."
+    j_msg "-${warn}" "No distcc hosts found in ${hosts_file} (excluding localhost)."
   else
     _count=0
     for host in "${hosts[@]}"; do
@@ -417,7 +419,7 @@ draft_etc_distcc_hosts() {
         # validate
         if [ ! "${#_tmp_data[@]}" -eq 3 ]; then
           # dont error out on this - just report and skip to next host
-          j_msg -${err} "failed data acquisition from [$host]"
+          j_msg "-${err}" "failed data acquisition from [$host]"
           continue  # skip to next host
         fi
         # assign from array (0-indexed)
@@ -434,7 +436,7 @@ draft_etc_distcc_hosts() {
         fi
         total_remote_job_limit=$((total_remote_job_limit + job_limit)) || de_ret=$(( de_ret + 32 ))   # bit 5 = calc rem jobs failed
       else
-        j_msg -${err} "${Ron}failed to get info from $host${Boff} (ssh/sysbench?)"
+        j_msg "-${err}" "${Ron}failed to get info from $host${Boff} (ssh/sysbench?)"
       fi  # remote output not null
       _count=$((_count + 1))
     done
@@ -442,8 +444,8 @@ draft_etc_distcc_hosts() {
   fi  #  hosts -gt 0
 
   printf "$format" "${Con}" "--------" "--------" "--------" "${Boff}"
-  j_msg -${notice} -mp ""
-  j_msg -${notice} -p "Recommended ${hosts_file} order (descending power):"
+  j_msg "-${notice}" -mp ""
+  j_msg "-${notice}" -p "Recommended ${hosts_file} order (descending power):"
 
   # sort with key on col 2 (sysbench)
   sorted_hosts=($(printf "%s\n" "${host_benchmarks[@]}" | sort -t: -k2 -nr)) || de_ret=$(( de_ret + 64 ))   # bit 6 = host sort failed
@@ -453,24 +455,24 @@ draft_etc_distcc_hosts() {
     benchmark=$(echo "$entry" | cut -d: -f2)
     limit=$(echo "$entry" | cut -d: -f3)
     msg=$(printf "$format" "${Con}" "$host,lzo/${limit}" "# ${benchmark}" "" "${Boff}")
-    j_msg -${notice} -mp "$msg"
+    j_msg "-${notice}" -mp "$msg"
   done
-  return $de_ret
+  return "$de_ret"
 }
 
 draft_makeopts() {
   dm_ret=0
-  j_msg -${notice} -mp "" # severity-aware newline
-  j_msg -${notice} -p "${BYon}Draft MAKEOPTS data --${Boff}"
-  j_msg -${notice} -p -M $idx_hammer "Local job limit  (L = min(local_cores, local_RAM/2G ) ) .........: $local_job_limit"
-  j_msg -${notice} -p -M $idx_wrench "Remote job limit (R = sum(min(remote_cores, remote_RAM/2G )) ) ..: $total_remote_job_limit"
+  j_msg "-${notice}" -mp "" # severity-aware newline
+  j_msg "-${notice}" -p "${BYon}Draft MAKEOPTS data --${Boff}"
+  j_msg "-${notice}" -p -M "$idx_hammer" "Local job limit  (L = min(local_cores, local_RAM/2G ) ) .........: $local_job_limit"
+  j_msg "-${notice}" -p -M "$idx_wrench" "Remote job limit (R = sum(min(remote_cores, remote_RAM/2G )) ) ..: $total_remote_job_limit"
   local effective_job_limit=$(( local_job_limit + ( total_remote_job_limit * 75 / 100 ) )) || dm_ret=1   # bit 0 = failed to assign E
-  j_msg -${notice} -p -M $idx_screwdriver "Effective job limit (E = L + ( 0.75 * R) ) ): $effective_job_limit"
+  j_msg "-${notice}" -p -M "$idx_screwdriver" "Effective job limit (E = L + ( 0.75 * R) ) ): $effective_job_limit"
   local msg="${BGon}Recommended: ${BCon}MAKEOPTS${_op_color}=${_quote_color}\"${BMon}-j${effective_job_limit}${_quote_color}\"${Boff}"
   local bw=$(( $(get_msg_len "$msg") + 4 )) || dm_ret=$(( dm_ret + 2 ))   # bit 1 = failed to calc bw
-  j_msg -${notice} -mp "" # severity-aware newline
+  j_msg "-${notice}" -mp "" # severity-aware newline
   box_msg "$msg" "$bw"  || dm_ret=$(( dm_reet + 4 ))   # bit 2 = box_msg failed
-  return $dm_ret
+  return "$dm_ret"
 }
 
 #-----[ main script ]-------------------------------------------------------------
@@ -479,14 +481,14 @@ separator "$(hostname)" "${PN}-${BUILD}"
 
 parse_cmdline "$@" || die "failed to parse_cmdline"
 validate_root_file "$hosts_file" || die "failed to validate_root_file hosts_file [$hosts_file]"
-j_msg -${debug} -p "(debug) DISCOVER: $(TrueFalse $DISCOVER)"
+j_msg "-${debug}" -p "(debug) DISCOVER: $(TrueFalse $DISCOVER)"
 
 # use script_header_joetoo_extended extract_distccd_settings to get authoritative distcc port number
 extract_distccd_settings || die "failed to extract_distccd_settings"
 
 show_config || die "failed to show_config"
 separator "$PN" "(go/no-go decision)"
-j_msg -u -M $idx_sparkles "please review the configuraion above"
+j_msg -u -M "$idx_sparkles" "please review the configuraion above"
 confirm_continue_or_exit
 
 discover_distcc_hosts || die "failed to discover_distcc_hosts"
@@ -496,5 +498,5 @@ draft_etc_distcc_hosts || die "failed to draft_etc_distcc_hosts, status [$?]"
 draft_makeopts || die "failed to draft_makeopts, status [$?]"
 
 separator "$(hostname)" "${PN}-${BUILD}"
-j_msg -${notice} -mp ""
-j_msg -${notice} -p "Done"
+j_msg "-${notice}" -mp ""
+j_msg "-${notice}" -p "Done"

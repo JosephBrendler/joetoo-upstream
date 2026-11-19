@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # /usr/sbin/loggit - submit a syslog message as appropriate for exit status and program name
-#
+
 # maintained by Joseph Brendler since 2009
 # modified from a 20 July 2007 demonstration authored by John Brendler
 

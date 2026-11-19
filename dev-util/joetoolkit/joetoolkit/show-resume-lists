@@ -7,7 +7,9 @@
 #   then you can invoke this script with ./show-resume-lists
 #
 # also use this script to test validate_scripts by changing comment in/out below
+
 import portage
+
 mtimedb = portage.mtimedb
 
 print("----[ resume ]----")    # should pass validate_scripts

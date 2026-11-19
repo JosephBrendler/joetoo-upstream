@@ -11,6 +11,8 @@ header="${script_header_installed_dir%/}/script_header_joetoo"
 
 echo "header: $header"
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 if [ -f "$header" ]; then . "$header"; else printf '%s' "failed to source header; cannot continue"; exit 1; fi
 printf '%s' "Checking for header commands to confirm sourcing"
 if command -v toc >/dev/null 2>&1 && command -v run_sequence >/dev/null 2>&1 ; then
@@ -62,7 +64,7 @@ get_webapp_installed_version() {
     j_msg "-${err}" "nextcloud has not been installed by webapp-config"
     exit
   else
-    webapp_installed_version=$(basename $(find /var/www/localhost/htdocs/myCloud/ -maxdepth 1 -iname '.webapp-nextcloud*') | \
+    webapp_installed_version=$(basename "$(find /var/www/localhost/htdocs/myCloud/ -maxdepth 1 -iname '.webapp-nextcloud*')" | \
       sed 's/\.webapp-nextcloud-//')
     j_msg "-${notice}" -p "webapp_installed_version: ${webapp_installed_version}"
   fi
@@ -87,12 +89,12 @@ get_emerged_versions() {
     version="${cut%%)*}"
     j_msg "-${debug}" -p "  version: ${version}"
     emerged_version_list+=("${version}")
-    msg="  emerged_version_list: [${emerged_version_list[@]}]"
+    msg="  emerged_version_list: [${emerged_version_list[*]}]"
     j_msg "-${debug}" -p "${msg}"
     # re-set ev_string_lr to the remainder
     ev_string_lr="${cut#*)}"
   done
-  msg="emerged_version_list: [${emerged_version_list[@]}]"
+  msg="emerged_version_list: [${emerged_version_list[*]}]"
   j_msg "-${notice}" -p "${msg}"
 }
 
@@ -133,7 +135,7 @@ app_configure || die "failed to app_configure"
 # over-written by app_configure
 j_msg "-${debug}" -n -m "(re)assigning LOCALIZED"
 LOCALIZED=$TRUE
-handle_result $? "$(TrueFalse $LOCALIZED)" "failed to reassign LOCALIZED" "$debug"
+handle_result $? "$(TrueFalse "$LOCALIZED")" "failed to reassign LOCALIZED" "$debug"
 j_msg "-${debug}" -n -m "(re)assigning INITIALIZED_ME"
 INITIALIZED_ME="yes"
 handle_result $? "$INITIALIZED_ME" "failed to reassign INITIALIZED_ME" "$debug"
@@ -162,6 +164,6 @@ check_emerged_versions
 
 result=$?
 separator "$PN-$BUILD" "(Done)"
-j_msg -n -p -M $idx_package "$PN complete. Results:"
+j_msg -n -p -M "$idx_package" "$PN complete. Results:"
 handle_result $result "" "" "$notice"
 exit $result

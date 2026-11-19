@@ -2,7 +2,7 @@
 # Copyright 2025-2026 Joseph Brendler
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-cd
+cd || { printf '%s\n' "cd failed"; exit 1 ; }
 umount -R /mnt/gentoo
 echo "mount | grep gentoo..."
 mount | grep gentoo

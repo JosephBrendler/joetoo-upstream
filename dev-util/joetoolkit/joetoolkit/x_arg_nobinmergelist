@@ -10,6 +10,9 @@
 #         xargs qatom -F %{CATEGORY}/%{PN} $(qatom -F %{CATEGORY}/%{PN}) \
 #          )  --keep-going || \
 #    echo "Error: provide a quoted \"failed to build\" list"
+
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}

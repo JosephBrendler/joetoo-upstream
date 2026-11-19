@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # perl_sample.pl - used to test check_syntax
+
 use strict;
 use warnings;
 

@@ -3,7 +3,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
+
+# handle pipe errors properly for handle_result, etc.
+set -o pipefail
+
+PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
+
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+
+[ -z "$verbosity" ] && verbosity=${notice}  # assign default if null; allow calling program to di>
 
 # show most recent elogs in /var/log/portage/elog/
 
@@ -24,52 +35,71 @@ ELOG_DIR="/var/log/portage/elog/"
 # function blocks
 usage()
 {
-   j_msg -${notice} -p "${BGon}usage: show-elog [option]${Boff}"
-   j_msg -${notice} -m "  Option -h  | --help     display this text"
-   j_msg -${notice} -m "         -l  | --latest   display elogs for latest emerge operations only"
-   j_msg -${notice} -m "         -t  | --today    display elogs for today's emerge operations only"
-   j_msg -${notice} -m "         -p  | --paged    display elogs with paged (less) output"
-   j_msg -${notice} -m
-   j_msg -${notice} -m "  Note: User will be shown dates of emerge operations for which elog files exist"
-   j_msg -${notice} -m "      and be prompted for input.  Response can be any string filter.  Resulting"
-   j_msg -${notice} -m "      output will be the names and contents of all matching filenames. Default"
-   j_msg -${notice} -m "      is the most recent date found."
-   j_msg -${notice} -m
-   j_msg -${notice} -m "  Example:"
-   j_msg -${notice} -p "${BGon}  Enter date ["20110123"]:${Boff} 2009<enter>"
-   j_msg -${notice} -m "      will generate output of names and contents of all files with filename"
-   j_msg -${notice} -m '      matching "2009"'
-   j_msg -${notice} -m
-   j_msg -${notice} -m "  Note: You can use show-elogs in a non-interactive fashion by piping it the"
-   j_msg -${notice} -m "      input for its filter prompt.  You can also generate a paged display of"
-   j_msg -${notice} -m "      its output by piping it to less.  For example:"
-   j_msg -${notice} -m "         # echo 'portage' | show-elogs | less"
-   j_msg -${notice} -m "      to generate a paged display of elogs pertaining to the portage package."
+   j_msg "-${notice}" -p "${BGon}usage: show-elog [option]${Boff}"
+   j_msg "-${notice}" -m "  Option -h  | --help     display this text"
+   j_msg "-${notice}" -m "         -l  | --latest   display elogs for latest emerge operations only"
+   j_msg "-${notice}" -m "         -t  | --today    display elogs for today's emerge operations only"
+   j_msg "-${notice}" -m "         -p  | --paged    display elogs with paged (less) output"
+   j_msg "-${notice}" -m
+   j_msg "-${notice}" -m "  Note: User will be shown dates of emerge operations for which elog files exist"
+   j_msg "-${notice}" -m "      and be prompted for input.  Response can be any string filter.  Resulting"
+   j_msg "-${notice}" -m "      output will be the names and contents of all matching filenames. Default"
+   j_msg "-${notice}" -m "      is the most recent date found."
+   j_msg "-${notice}" -m
+   j_msg "-${notice}" -m "  Example:"
+   j_msg "-${notice}" -p "${BGon}  Enter date [yyyymmdd]:${Boff} 2009<enter>"
+   j_msg "-${notice}" -m "      will generate output of names and contents of all files with filename"
+   j_msg "-${notice}" -m '      matching "2009"'
+   j_msg "-${notice}" -m
+   j_msg "-${notice}" -m "  Note: You can use show-elogs in a non-interactive fashion by piping it the"
+   j_msg "-${notice}" -m "      input for its filter prompt.  You can also generate a paged display of"
+   j_msg "-${notice}" -m "      its output by piping it to less.  For example:"
+   j_msg "-${notice}" -m "         # echo 'portage' | show-elogs | less"
+   j_msg "-${notice}" -m "      to generate a paged display of elogs pertaining to the portage package."
 }
 
-find_elog_dates ()
-{
-# display dates for emerge operations for which elog files exist
-# options: -v verbose (default) | -q silent
-# returns: latest date found in format +%Y%m%d as found in filenames
-[ ! "$1" = "-q" ] && j_msg -${notice} -p "${BYon}Note: elogs exist for emerge operations run on the following dates (oldest first):${Boff}"
-[ ! "$1" = "-q" ] && j_msg -${notice} -mp -n "${Con}"  # turn on this color for all date selectors
-j=1
-for x in $(find "$ELOG_DIR" -maxdepth 1 -mindepth 1 -type f -not -iname 'summary*' | grep -v 'keep' | cut -d":" -f 3 | cut -d"-" -f 1 | sort -nu); do
-   [ ! "$1" = "-q" ] && j_msg -${notice} -mp -n "   "$x
-   let "rem = $(expr $j % 7)"
-   [ $rem -eq  0 ] && [ ! "$1" = "-q" ] && printf '\n'
-   let "j = $j + 1"
-done
-[ ! "$1" = "-q" ] && j_msg -${notice} -mp "${Boff}"
-answer="$x"  # returns latest date found for variable assignment
+find_elog_dates () {
+    # display dates for emerge operations for which elog files exist
+    # options: -v verbose (default) | -q silent
+    # returns: latest date found in format +%Y%m%d as found in filenames
+    # directory file format -
+    # -rw-rw-r-- 1 portage portage   1000 Aug 13 06:20 virtual:opencl-3-r5:20260813-102023.log
+    local -a dtg_array=()
+    local -a find_args=()
+    [ ! "$1" = "-q" ] && j_msg "-${notice}" -p "${BYon}Note: elogs exist for emerge operations run on the following dates (oldest first):${Boff}"
+    # build arguments for find in an array
+    find_args=( "$ELOG_DIR" -maxdepth 1 -mindepth 1 -type f )
+    # populate an array of elog file dates in the form yyyymmdd
+    j_msg "-${debug}" -p -n "building array of elog dates yyyymmdd"
+    readarray -t dtg_array < <( find "${find_args[@]}" |
+                             grep -v 'summary' |   # ignore files like 'tmp_elog_summary'
+                             grep -v 'keep' |   #..# ignore files like '.keep_sys-apps_portage-0'
+                             cut -d":" -f 3 |   #..# strip all left of and incl 3rd ':' char
+                             cut -d"-" -f 1 |   #..# keep only the 20260813 part
+                             sort -nu   #..........# sort numeric; deduplicate
+    )
+    handle_result $? "ingested ${#dtg_array[@]}" "" "$debug" || die "failed to ingest dtg_array"
+    # iterate over array of yyyymmdd values found
+    j=1
+    for dtg in "${dtg_array[@]}" ; do
+        [ ! "$1" = "-q" ] && j_msg "-${notice}" -mp -n "   ${Con}${dtg}${Boff}"
+        rem=$(( j % 7 ))
+        # if there were already 7 columns, start a new row
+        [ $rem -eq  0 ] && [ ! "$1" = "-q" ] && printf '\n'
+        j=$(( j + 1 ))
+    done
+    [ ! "$1" = "-q" ] && j_msg "-${notice}" -mp "${Boff}"
+    answer="$dtg"  # returns latest date found for variable assignment
 }
 
 #------------------------------------------------------------------------
 # start main script
+checkroot
+
+separator "$(hostname)" "${PN}-${BUILD}"
 
 # process command line argument (must be one of the following)
-[ ! -z "$1" ] && case $1 in
+[ ! -z "$1" ] && case "$1" in
     "-h" | "--help"    ) usage ; exit 0  ;;
     "-l" | "--latest"  ) LATEST="$TRUE" ;;
     "-t" | "--today"   ) TODAY="$TRUE" ;;
@@ -78,32 +108,40 @@ answer="$x"  # returns latest date found for variable assignment
 esac
 
 answer=""
-if [ "$TODAY" ]
-then
+if [ "$TODAY" ]; then
     answer="$(date -u +%Y%m%d)"
-elif [ "$LATEST" ]
-then
+elif [ "$LATEST" ]; then
     find_elog_dates -q  # quietly sets answer to latest date
 else
     # prompt user to select date; default to latest
     find_elog_dates -v  # verbosely lists all elog dates
     printf '\n'
-    j_msg -${notice} -p -n "${BGon}Enter date ["$answer"]:"
-    read reply
-    [ ! -z $reply ] && answer=$reply
+    j_msg "-${notice}" -p -n "${BGon}Enter date ${BBon}[${BMon}${answer}${BBon}]${Boff}: "
+    read -r reply
+    [ ! -z "$reply" ] && answer="$reply"
 fi
 # create output file and display selected elogs
 tmp_elog_summary_file="${ELOG_DIR%/}/tmp_elog_summary"
 [ -e "$tmp_elog_summary_file" ] && rm "$tmp_elog_summary_file"
-printf '%s' "${BGon} * " > "$tmp_elog_summary_file"
-printf '%s' "${BYon}Found the following elogs for filter: ${BRon}$answer" >> "${ELOG_DIR%?}/tmp_elog_summary"
-printf '\n' >> "$tmp_elog_summary_file"
+printf ' %s* %s\n' "${BGon}" "${BYon}Found the following elogs for filter: ${BRon}${answer}${Boff}" \
+    > "$tmp_elog_summary_file"
 
-for i in $(find $ELOG_DIR -maxdepth 1 -mindepth 1 -type f -iname "*${answer}*" -printf '%f\n'); do
-
-   printf '%s'  "${BGon} * ${BYon} ${i%%$answer*}${BRon}${answer}${BYon}${i##*$answer} ${Boff}" >> "$tmp_elog_summary_file"
-   printf '\n' >> "$tmp_elog_summary_file"
-   cat "${ELOG_DIR%/}/${i}" >> "$tmp_elog_summary_file"
+# build arguments for find in an array (match yyyymmdd in $answer and printf basename with %f
+find_args=( "$ELOG_DIR" -maxdepth 1 -mindepth 1 -type f -iname )
+find_args+=( "*${answer}*" )   #....# unquoted glob *$answer*
+find_args+=( -printf '%f\n' )   # quoted %f\n  basename of file and newline terminator
+j_msg "-${debug}" -p  "find_args: [${find_args[*]}]"
+# populate an array of elog filenames matching find_args
+j_msg "-${debug}" -p -n "building array of elog files matching date ${BBon}[${BMon}${answer}${BBon}]${Boff}"
+readarray -t elog_array < <( find "${find_args[@]}" )
+handle_result $? "ingested ${#elog_array[@]}" "" "$debug" || die "failed to ingest elog_array"
+# iterate through elog files and print each
+for elog_file in "${elog_array[@]}"; do
+    msg="${BYon} ${elog_file%%"${answer}"*}${BRon}${answer}${BYon}${elog_file##*"${answer}"} ${Boff}"
+    {
+        printf ' %s* %s\n'  "${BGon}" "$msg"
+        cat "${ELOG_DIR%/}/${elog_file}"
+    } >> "$tmp_elog_summary_file"    # group commands with {...} for efficient >> output
 done
 
 if [ "$PAGED" ]
@@ -116,4 +154,3 @@ fi
 # clean up
 [ -e "$tmp_elog_summary_file" ] && rm "$tmp_elog_summary_file"
 exit 0
-

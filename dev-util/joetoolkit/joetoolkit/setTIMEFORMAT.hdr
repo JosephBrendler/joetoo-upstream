@@ -7,6 +7,10 @@
 # positioned after j_msg is defined b/c it is assigned as the file is parsed
 # ( activate with  'TIMEFORMAT="$myTIMEFORMAT"'; deactivate with 'unset TIMEFORMAT' )
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+source /usr/sbin/script_header_joetoo
+
 setTIMEFORMAT() # (Bash) define customized TIMEFORMAT
 { # input validation guards
   [ $# -gt 1 ] && { j_msg "-${err}" -p "usage: setTIMEFORMAT [-l] (option -l for long form)"; return 1 ; }
@@ -29,8 +33,9 @@ setTIMEFORMAT() # (Bash) define customized TIMEFORMAT
        ;;
     *) die "invalid format in setTIMEFORMAT.hdr" ;;
   esac
-  export TIMEFORMAT=$(
-    echo; echo -n " "; u_echo $uT_watch
+  export TIMEFORMAT
+  TIMEFORMAT=$(
+    echo; echo -n " "; u_echo "$uT_watch"
     j_msg -u -m -n "${BAon}Real: ${BLon}${real_format}${Boff}"
     j_msg -u -m -n "  ${BAon}User: ${BLon}${user_format}${Boff}"
     j_msg -u -m "  ${BAon}Sys: ${BLon}${sys_format} ${BWon}(${BOon}${cpu_pcnt}${BWon})${Boff}"

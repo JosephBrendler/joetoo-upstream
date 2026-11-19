@@ -4,6 +4,8 @@
 #
 # get-drivers - updated version of get-drivers using jq and associative array to also collect "what is it for?"
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 # ensure the lshw | jq pipeline results in non-zero exit status when doing readarray for lshw_driver_records

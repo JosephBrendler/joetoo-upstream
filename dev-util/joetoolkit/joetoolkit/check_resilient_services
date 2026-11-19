@@ -7,7 +7,8 @@
 # source headers
 #script_header_installed_dir=./         ## only when testing, pre-ebuild
 script_header_installed_dir=/usr/sbin   # this is where it should be installed
-# shellcheck source=/usr/sbin/script_header_joetoo
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source "${script_header_installed_dir%/}/script_header_joetoo"
 
 # only needed for testing sources pending package build

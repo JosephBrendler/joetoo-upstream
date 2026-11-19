@@ -4,9 +4,8 @@
 #
 # check_syntax - check bash syntax in all files found in specified directory tree
 
-# shellcheck source=/usr/sbin/script_header_joetoo
-# shellcheck source=/usr/sbin/script_header_joetoo_extended
-# shellcheck source=/usr/sbin/script_header_joetoo_unicode
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   # basename
@@ -17,6 +16,8 @@ if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1
 #  Ron BRon Gon BGon Yon BYon Bon BBon Mon BMon Con BCon Won BWon RVon
 #  Oon BOon Lon BLon Ton BTon Aon BAon Non BNon Pon BPon Son BSon Fon BFon
 #)
+
+separator "$(hostname)" "${PN}-${BUILD}"
 
 # extract the current list of colors defined in script_header_joetoo
 # identified by lines that begin with one or two alpha chars followed by "on="

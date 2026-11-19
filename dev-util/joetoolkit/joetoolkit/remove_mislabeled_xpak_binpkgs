@@ -10,6 +10,8 @@
 j_msg() { printf '%s\n' "$@" ;}
 
 echo "sourcing /usr/sbin/script_header_joetoo"
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 if command -v j_msg &>/dev/null ; then
     handle_result 0 '' '' "$notice"

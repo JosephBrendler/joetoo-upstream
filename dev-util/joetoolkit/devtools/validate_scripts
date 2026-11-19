@@ -366,11 +366,11 @@ for x in "${target_array[@]}" ; do
     candidate="${shebang_line:0:3}"
 
     # warn and skip if the captured text does not match standard shebang
-    [ "$candidate" = "$shebang" ] || { j_msg "-${warn}" -p "no shebang [$shebang] in file [$x]; skipping"; continue ; }
+    [ "$candidate" = "$shebang" ] || { j_msg "-${debug}" -p "no shebang [$shebang] in file [$x]; skipping"; continue ; }
 
     # call choose_checker;warn and skip if shebang is invalid
     if ! choose_checker "$shebang_line"; then
-        j_msg "-${warn}" -p "Invalid shebang_line [$shebang_line]; skipping file [$x]"
+        j_msg "-${debug}" -p "Invalid shebang_line [$shebang_line]; skipping file [$x]"
         continue
     fi
 

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # screenshot_25.sh - use xwd to capture a screenshot
-#
+
 FOLDER="$HOME/screenshots/"
 
 [ ! -d "${FOLDER}" ] && mkdir "${FOLDER}"

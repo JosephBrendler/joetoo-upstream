@@ -5,6 +5,8 @@
 # joetoo-locale-verify: validates baseline locale configuration
 #
 
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 . /usr/sbin/script_header_joetoo
 
 PN=${0##*/}     # basename

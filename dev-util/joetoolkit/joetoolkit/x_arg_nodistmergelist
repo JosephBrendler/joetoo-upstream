@@ -9,6 +9,9 @@
 #         xargs qatom -F %{CATEGORY}/%{PN} $(qatom -F %{CATEGORY}/%{PN}) \
 #          )  --keep-going || \
 #    echo "Error: provide a quoted \"failed to build\" list"
+
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}
@@ -24,46 +27,45 @@ no_add_list=()
 
 # read /home/joe/temp and extract package atoms from lines matching ( and :
 filter() {
-    echo $(while read LINE
-      do
-         result=$( echo "${LINE}" | grep '(' | cut -d'(' -f2 | cut -d':' -f1 )
-         [[ ! -z ${result} ]] && qatom -F %{CATEGORY}/%{PN} $(qatom -F %{CATEGORY}/%{PN} ${result})
-      done  < /home/joe/temp )
+    while read -r LINE; do
+        result=$( echo "${LINE}" | grep '(' | cut -d'(' -f2 | cut -d':' -f1 )
+        [[ ! -z "${result}" ]] && qatom -F "%{CATEGORY}/%{PN}" "$(qatom -F "%{CATEGORY}/%{PN}" "${result}")"
+    done  < /home/joe/temp
 }
 
 # run emerge with -distcc
 merge() {
-  MAKEOPTS="-j1" FEATURES=" -sandbox -usersandbox -userpriv -distcc" emerge -av1 --keep-going $(filter)
+  MAKEOPTS="-j1" FEATURES=" -sandbox -usersandbox -userpriv -distcc" emerge -av1 --keep-going "$(filter)"
 }
 
 # determine if $1 is already in listed for nodist_features.conf in $package_env_file
-grep_item() { grep $1[[:space:]]*nodist_features.conf ${package_env_file}; }
+grep_item() { grep "${1}${W0}nodist_features.conf" "${package_env_file}"; }
 
 # list items separately as already added or need to be added to $package_env_file
 list() {
   for x in $(filter)
   do
     result=$(grep_item "$x")
-    [[ -z ${result} ]] && add_list+=(${x}) || no_add_list+=(${x})
+    [[ -z "${result}" ]] && add_list+=( "${x}" ) || no_add_list+=( "${x}" )
   done
-  j_msg -${notice} -p "Already in ${package_env_file} --"
+  j_msg "-${notice}" -p "Already in ${package_env_file} --"
   for ((i=0; i<${#no_add_list[@]}; i++))
   do
-    j_msg -${notice} -mp  "  ${no_add_list[i]}"
+    j_msg "-${notice}" -mp  "  ${no_add_list[i]}"
   done
-  j_msg -${notice} -p "Consider adding to ${package_env_file} --"
+  j_msg "-${notice}" -p "Consider adding to ${package_env_file} --"
   for ((i=0; i<${#add_list[@]}; i++))
   do
-    j_msg -${notice} -mp "  ${add_list[i]} nodist_features.conf"
+    j_msg "-${notice}" -mp "  ${add_list[i]} nodist_features.conf"
   done
 }
 
 usage() {
-  j_msg -${err} "Error: place \"failed to build\" list in /home/joe/temp and run"
-  j_msg -${notice} -mp "  x_arg_nodistmergelist [[g]o|[m]erge|[l]ist]"
-  j_msg -${notice} -mp '    m = merge failed packages without distcc'
-  j_msg -${notice} -mp '    l = list failed packages to consider adding to package.env with nodist_features.conf'
-  j_msg -${notice} -mp '    g = merge and if successful, suggest what to add to package.env'
+  j_msg "-${err}" "Error: place \"failed to build\" list in /home/joe/temp and run"
+  j_msg "-${notice}" -mp "  x_arg_nodistmergelist [[g]o|[m]erge|[l]ist]"
+  j_msg "-${notice}" -mp '    m = merge failed packages without distcc'
+  j_msg "-${notice}" -mp '    l = list failed packages to consider adding to package.env with nodist_features.conf'
+  j_msg "-${notice}" -mp '    g = merge and if successful, suggest what to add to package.env'
   exit 1
 }
 

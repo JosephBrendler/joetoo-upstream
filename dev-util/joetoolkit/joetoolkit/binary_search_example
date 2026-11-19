@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # bs2 - implements simple binary search for target ($2) in list or inputfile ($1)
+
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 source /usr/sbin/script_header_joetoo_extended
 if ! command -v j_msg >/dev/null 2>&1; then printf '%s\n' "error: header /usr/sbin/script_header_joetoo not sourced"; exit 1; fi

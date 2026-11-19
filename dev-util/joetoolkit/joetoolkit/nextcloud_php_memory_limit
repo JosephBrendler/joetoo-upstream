@@ -2,7 +2,11 @@
 # Copyright 2025-2026 Joseph Brendler
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
+# nextcloud_php_memory_limit - fix php defalult memory limits too low for nextcloud
+
 # source header (for checkroot, TRUE/FALSE, j_msg, etc.)
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
 
 #----[ functions ]---------------------------------

@@ -2,7 +2,7 @@
 # Copyright 2025-2026 Joseph Brendler
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-#
+
 for line in $(grep -l /mnt/gentoo/ /proc/*/mountinfo) ; do
   process=$(echo $line | cut -d'/' -f3) ;
   echo "identifying $process ..." ;

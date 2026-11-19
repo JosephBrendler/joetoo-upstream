@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # nextcloud_upgrade
-#
+
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
 source /usr/sbin/script_header_joetoo
+
 new_version=""
 myCloud_dir="/var/www/localhost/htdocs/myCloud/"
 old_dir="$PWD"
