@@ -1,0 +1,247 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+## shellcheck_stub_filter - produce a consumer-scoped script_header_joetoo
+# ShellCheck stub from the installed comprehensive function/variable stubs.
+#
+# Draft for dev-util/joetoolkit/devtools (not an installed joetoo utility).
+# No target application is executed or modified. This tool only reads files.
+#
+# Input:  directory (recursive shell-shebang discovery) or a single shell file.
+# Output: one generated combined stub for an entire selected input set.
+
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+source /usr/sbin/script_header_joetoo
+
+PN=${0##*/}
+if [ -f /etc/joetoolkit/BUILD ]; then . /etc/joetoolkit/BUILD; else BUILD="0.0.1"; fi
+[ -z "$verbosity" ] && verbosity="${notice}"
+
+#-----[ variables ]-------------------------------------------------------------------
+
+func_stub="${SHELLCHECK_FUNC_STUB:-/usr/sbin/script_header_joetoo.shellcheck_func_stub}"
+var_stub="${SHELLCHECK_VAR_STUB:-/usr/sbin/script_header_joetoo.shellcheck_var_stub}"
+
+# The first operand follows the usual joetoolkit target default.
+target="${1:-$(pwd)}"
+filtered_stub="${2:-${TMPDIR:-/tmp}/script_header_joetoo.shellcheck_filtered_stub}"
+
+# All temporary files are created in private locations. An output file may be
+# replaced by its newer generated version, but the installed inputs are never written.
+scratch=""
+staged_output=""
+declare -a shell_files=()
+
+#-----[ functions ]-------------------------------------------------------------------
+
+usage() {
+    j_msg "-${notice}" -p "Usage: ${PN} [DIRECTORY|SHELL_FILE] [OUTPUT_STUB]"
+    j_msg "-${notice}" -p "Default input: current directory; recursively find shell shebang files"
+    j_msg "-${notice}" -p "Default output: ${TMPDIR:-/tmp}/script_header_joetoo.shellcheck_filtered_stub"
+    j_msg "-${notice}" -p "Shells: sh, ash, bash, dash, ksh, mksh, zsh, yash, openrc-run"
+    j_msg "-${notice}" -p "Includes archive/ and tests/ under the selected directory; excludes .git/.hg/.svn"
+    j_msg "-${notice}" -p "Only the generated stub is written; does not edit source or run ShellCheck"
+}
+
+## shellcheck cannot follow that this is called by trap
+# shellcheck disable=SC2329
+cleanup() {
+    # Remove only the specific staging files and directory we created.
+    if [ -n "$staged_output" ]; then rm -f -- "$staged_output"; fi
+    if [ -n "$scratch" ]; then
+        rm -f -- "$scratch/candidates" "$scratch/counts"
+        rmdir -- "$scratch" 2>/dev/null || :
+    fi
+}
+
+is_shell_script() {
+    # Accept ordinary direct shebangs and common /usr/bin/env forms.
+    # Read only the first line; do not execute the file or its interpreter.
+    local file="$1" line executable word i
+    local -a fields=()
+
+    [ -r "$file" ] || return 1
+    line=""
+    IFS= read -r line < "$file" || [ -n "$line" ] || return 1
+    [[ "$line" == '#!'* ]] || return 1
+
+    read -r -a fields <<< "${line#\#!}"
+    [ "${#fields[@]}" -gt 0 ] || return 1
+    executable="${fields[0]##*/}"
+
+    if [ "$executable" = "env" ]; then
+        # Handles '#!/usr/bin/env bash' and '#!/usr/bin/env -S bash -e'.
+        executable=""
+        for (( i=1; i<${#fields[@]}; i++ )); do
+            word="${fields[i]}"
+            case "$word" in
+                -S|--split-string|-i|--ignore-environment|--|[A-Za-z_]*=*) continue ;;
+                -*) return 1 ;;  # Unrecognized env option; do not guess.
+                *) executable="${word##*/}"; break ;;
+            esac
+        done
+    elif [ "$executable" = "busybox" ]; then
+        # '#!/bin/busybox ash' and '#!/bin/busybox sh'.
+        executable="${fields[1]##*/}"
+    fi
+
+    case "$executable" in
+        sh|ash|bash|dash|ksh|mksh|zsh|yash|openrc-run) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+collect_shell_files() {
+    local file
+
+    # Store candidates as NUL-delimited names (spaces/newlines are valid).
+    if [ -d "$target" ]; then
+        find "$target" \
+            \( -type d \( -name .git -o -name .hg -o -name .svn \) -prune \) -o \
+            \( -type f -print0 \) > "$scratch/candidates" || return 1
+    elif [ -f "$target" ]; then
+        printf '%s\0' "$target" > "$scratch/candidates" || return 1
+    else
+        j_msg "-${err}" -p "Target is not a regular file or directory: [$target]"
+        return 1
+    fi
+
+    shell_files=()
+    while IFS= read -r -d '' file; do
+        # generated ShellCheck stubs are analysis inputs, not consumers
+        # exclude all variants, including previously generated filtered stubs,
+        # to prevent recursion when the filter recognizes its own shebang
+        case "${file##*/}" in
+            # if the file is a stub, skip it
+            script_header_joetoo.shellcheck_*_stub) continue ;;
+        esac
+        # if the file is s shell script, include it
+        if is_shell_script "$file"; then
+            shell_files+=( "$file" )
+        fi
+    done < "$scratch/candidates"
+    [ "${#shell_files[@]}" -gt 0 ]
+}
+
+filter_stub() {
+    local kept total
+
+    # preserve the complete function stub; only variable assignments are filtered;
+    # the inactive protection-function wrapper remains in place
+    cat -- "$func_stub" > "$staged_output" || return 1
+    printf '\n# Consumer-filtered variable definitions (generated; do not edit)\n' \
+        >> "$staged_output" || return 1
+
+    # use awk to identify shell variable assignments
+    # (a whole-identifier scan, deliberately conservative)
+    # comments/strings may keep extra names, but this is not a Bash parser and
+    # cannot reliably discover indirect or constructed variable references
+    awk -v varfile="$var_stub" -v countsfile="$scratch/counts" '
+        # this block accepts only lines not from the full var_stub
+        # (to collect variable names actually appearing in the scripts we are
+        #  building the filter for; but possibly only in comments)
+        FILENAME != varfile {
+            # split the line into n words delimited by non-alnum chars
+            n = split($0, words, /[^A-Za-z0-9_]+/)
+            for (i=1; i<=n; i++)
+                # identifier must begin with a letter or underscore,
+                # followed by zero or more letters, digits, or underscores
+                if (words[i] ~ /^[A-Za-z_][A-Za-z0-9_]*$/)
+                    # populate associative array keyed on var names
+                    used[words[i]] = 1
+            next
+        }
+        # this block is designed to match variable assignments in the var_stub
+        # which all start with whitespace(?) followed by valid var name chars and =
+        /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=/ {
+            name = $1
+            # extract var name from first word by stripping = and all after
+            sub(/=.*/, "", name)
+            total++
+            # if name is not in the used array, skip to the next line
+            # (do not keep for filtered; do not print)
+            if (!(name in used)) next
+            # otherwise increment the kept counter and print it
+            kept++
+        }
+        # print any line that makes it this far
+        # preserving the original stubs comments and function wrapper
+        { print }
+        # after ALL input files have been processed, write summary counts
+        END { printf "%d %d\n", kept, total > countsfile }
+        # input files are processed in the order supplied below:
+        # 1. func_stub: collect identifiers; do not print its lines
+        # 2. shell_files: collect identifiers; do not print their lines
+        # 3. var_stub: print only assignments whose names were collected,
+        #    plus all non-assignment lines (including the function wrapper)
+        #
+        # the complete function stub was already written by cat above;
+        # awk appends the filtered variable stub to that output
+    ' "$func_stub" "${shell_files[@]}" "$var_stub" >> "$staged_output" || return 1
+
+    read -r kept total < "$scratch/counts" || return 1
+    j_msg "-${notice}" -p "Retained [$kept] of [$total] variable assignments"
+
+    bash -n "$staged_output" || return 1
+    return 0
+}
+
+#-----[ main script ]------------------------------------------------------------------
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+if [ "$#" -gt 2 ]; then usage; exit 2; fi
+
+[ -r "$func_stub" ] || { j_msg "-${err}" -p "Missing/unreadable function stub [$func_stub]"; exit 2; }
+[ -r "$var_stub" ] || { j_msg "-${err}" -p "Missing/unreadable variable stub [$var_stub]"; exit 2; }
+
+# A diagnostic/development tool must never overwrite the authoritative stubs.
+case "$filtered_stub" in
+    "$func_stub"|"$var_stub")
+        j_msg "-${err}" -p "Output must not overwrite a source stub [$filtered_stub]"
+        exit 2
+        ;;
+esac
+
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/${PN}.XXXXXXXX") || exit 1
+trap cleanup EXIT
+
+separator "$(hostname)" "${PN}-${BUILD}"
+j_msg "-${notice}" -p -n "Discovering shell-shebang files in [$target] ..."
+if collect_shell_files; then result=0; else result=$?; fi
+handle_result "$result" "found [${#shell_files[@]}]" "none found/discovery failed" "$notice" || exit 1
+[ "$result" -eq 0 ] || exit 1
+
+# Stage next to the destination so the final rename is on the same filesystem.
+staged_output=$(mktemp "${filtered_stub}.XXXXXXXX") || {
+    j_msg "-${err}" -p "Cannot create output staging file for [$filtered_stub]"
+    exit 1
+}
+
+j_msg "-${notice}" -p "Filtering script_header_joetoo stub ..."
+if filter_stub; then result=0; else result=$?; fi
+j_msg "-${notice}" -p -n "Done filtering stub; result:"
+handle_result "$result" "generated" "failed" "$notice" || exit 1
+[ "$result" -eq 0 ] || exit 1
+
+# The generated file is a non-executable ShellCheck input, not an application.
+chmod 0644 "$staged_output" || exit 1
+mv -f -- "$staged_output" "$filtered_stub" || exit 1
+staged_output=""
+
+j_msg "-${notice}" -p "Filtered stub: [$filtered_stub]"
+msg="Place a shellcheck source directive"
+msg+=" above the consumer's header import line"
+j_msg "-${notice}" -p "$msg"
+j_msg "-${notice}" -mp ""
+dest=$(pwd)
+j_msg "-${notice}" -mp "dest=$dest"
+j_msg "-${notice}" -mp "mv $filtered_stub ${dest%/}/"
+j_msg "-${notice}" -mp "# shellcheck source=./${filtered_stub##*/}"
+j_msg "-${notice}" -mp ""
+j_msg "-${notice}" -p "ShellCheck and application-specific regression validation remain separate"
+
+exit 0
