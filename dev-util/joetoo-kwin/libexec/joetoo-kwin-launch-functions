@@ -1,0 +1,384 @@
+#!/bin/bash
+# Copyright 2025-2026 Joseph Brendler
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Sourced by joetoo-kwin; geometry and ownership remain with their existing owners.
+# shellcheck disable=SC2154
+
+launch_resource() {
+    python3 "$(dirname -- "${BASH_SOURCE[0]}")/joetoo_kwin_launch_resources.py" "$@"
+}
+
+# Only called from confirmed execution, immediately before the SFTP launch.
+# Reporting/helper failures cannot change the managed application outcome.
+sftp_launch_advisory() {
+    [[ $sftp_advisory_enabled ]] || return 0
+    local _sa_result _sa_warning _sa_observation
+    if _sa_result=$(printf '%s' "$1" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/joetoo_kwin_sftp_advisory.py" \
+        "$sftp_advisory_timeout_ms" "$sftp_advisory_ssh_port"); then
+        _sa_warning=$(jq -er '.warning | select(type == "string")' <<< "$_sa_result") || _sa_warning='SFTP advisory: result unavailable; launching Dolphin anyway.'
+        [[ -z $_sa_warning ]] || j_msg "-${warn}" -p "$_sa_warning" || :
+        _sa_observation=$(jq -c 'del(.warning)' <<< "$_sa_result") || _sa_observation='unavailable'
+        j_msg "-${debug}" -p "SFTP NSS/TCP advisory observation (not SSH authentication or SFTP listing verification): $_sa_observation" || :
+    else
+        j_msg "-${warn}" -p 'SFTP advisory: helper unavailable/inconclusive; launching Dolphin anyway.' || :
+    fi
+    return 0
+}
+
+# Capture only allowlisted effective settings and the complete original recipe.
+# The implied logical slot is retained independently from physical panel index.
+configured_restore_intent() {
+    local _ri_helper _ri_name _ri_names
+    _ri_helper="$(dirname -- "${BASH_SOURCE[0]}")/joetoo_kwin_persistence.py"
+    _ri_names=$(python3 "$_ri_helper" --setting-names) || return 2
+    for _ri_name in $_ri_names; do printf '%s\0%s\0' "$_ri_name" "${!_ri_name}"; done | \
+        python3 "$_ri_helper" --intent "${planned_desktop[$_op_i]}" "${planned_slot[$_op_i]}" \
+        "${planned_program[$_op_i]}" "${planned_mode[$_op_i]}" "${planned_target[$_op_i]}" "${planned_layer[$_op_i]}" "${desktop_session_frames[$_op_i]:-}"
+}
+
+# Encode a validated recipe and existing budgets; targets never become shell code.
+rdp_configured_job() {
+    printf '%s' "${planned_target[$_op_i]}" | jq -Rs \
+        --argjson intent "${launch_intent_json:-null}" \
+        --argjson settings "$rdp_settings" \
+        --argjson bounds "$rdp_bounds" --arg call "$vnc_dbus_timeout_ms" \
+        --arg placement "$vnc_placement_timeout_ms" \
+        --argjson desktop "${planned_desktop[$_op_i]}" --argjson slot "${planned_slot[$_op_i]}" \
+        --argjson x "${planned_x[$_op_i]}" --argjson y "${planned_y[$_op_i]}" \
+        --argjson width "${planned_width[$_op_i]}" --argjson height "${planned_height[$_op_i]}" '
+        {target:.,settings:$settings,desktop:$desktop,slot:$slot,x:$x,y:$y,width:$width,height:$height,
+         bounds:$bounds,
+         mechanical:{call_timeout_ms:$call,placement_timeout_ms:$placement}} +
+         (if $intent == null then {} else {intent:$intent} end)'
+}
+
+launch_configured_rdp() {
+    local _rl_job _rl_rc
+    local launch_attempt_timestamp=${launch_attempt_timestamp:-$(timestamp)}
+    launch_registration_id=""; launch_placement_id=""; launch_rdp_result=""; LAUNCH_CLEAN_FAILURE=$FALSE
+    _rl_job=$(rdp_configured_job) || return 2
+    j_msg "-${notice}" -p "[$launch_attempt_timestamp] Starting owned SDL RDP viewer; remote authentication remains unverified"
+    # Job data uses FD 3, preserving stdin for the original interactive session.
+    # The frontend/worker must never inherit this configured invocation's lock.
+    if launch_rdp_result=$(python3 "$(dirname -- "${BASH_SOURCE[0]}")/joetoo_kwin_rdp_launch.py" \
+        --job-fd 3 3<<< "$_rl_job" 9>&-); then _rl_rc=0; else _rl_rc=$?; fi
+    j_msg "-${info}" -m "[$launch_attempt_timestamp] RDP local outcome (remote login unverified): $launch_rdp_result"
+    launch_registration_id=$(jq -r '.registration.request_id // .cleanup.request_id // ""' <<< "$launch_rdp_result") || return 2
+    launch_placement_id=$(jq -r '.placement.request_id // ""' <<< "$launch_rdp_result") || return 2
+    if (( _rl_rc != 0 )) && jq -e '.phase == "registration" and .diagnostic == "rdp_nla_logon_rejected"' \
+        <<< "$launch_rdp_result" >/dev/null; then
+        j_msg "-${err}" -p 'SDL RDP connection failed: remote NLA logon rejected (ERRCONNECT_LOGON_FAILURE 0x00020014)'
+    fi
+    if (( _rl_rc != 0 )) && jq -e '.continuation_eligible == true and .cleanup_confirmed == true
+        and .phase == "registration" and (.state == "failed" or .state == "cancelled" or .state == "timeout")' <<< "$launch_rdp_result" >/dev/null; then
+        LAUNCH_CLEAN_FAILURE=$TRUE
+    fi
+    return "$_rl_rc"
+}
+
+# Same configured orchestration; VNC alone uses the deferred viewer-role path.
+launch_configured_window() {
+    local launch_attempt_timestamp=${launch_attempt_timestamp:-$(timestamp)}
+    LAUNCH_CLEAN_FAILURE=$FALSE
+    if [[ $1 == sdl-freerdp ]]; then launch_configured_rdp; return $?; fi
+    if [[ $1 != vncviewer ]]; then launch_managed_window "$@"; return $?; fi
+    local _vl_job _vl_result _vl_rc _vl_dir
+    launch_registration_id=""; launch_placement_id=""
+    _vl_dir=$(dirname -- "${BASH_SOURCE[0]}")
+    _vl_job=$(printf '%s' "${planned_target[$_op_i]}" | jq -Rs \
+        --argjson intent "${launch_intent_json:-null}" \
+        --argjson bounds "$vnc_bounds" --argjson slot "$2" --argjson desktop "$3" \
+        --argjson x "$4" --argjson y "$5" --argjson width "$6" --argjson height "$7" \
+        '$bounds + {target:.,slot:$slot,desktop:$desktop,x:$x,y:$y,width:$width,height:$height} +
+         (if $intent == null then {} else {intent:$intent} end)') || return 2
+    j_msg "-${notice}" -p "[$launch_attempt_timestamp] Starting TigerVNC over dedicated SSH; desktop readiness may wait for VNC authentication"
+    if _vl_result=$(printf '%s' "$_vl_job" | python3 "$_vl_dir/joetoo_kwin_vnc_launch.py" 9>&-); then _vl_rc=0
+    else _vl_rc=$?; fi
+    launch_registration_id=$(jq -r '.registration_request_id // ""' <<< "$_vl_result") || return 2
+    launch_placement_id=$(jq -r '.placement_request_id // ""' <<< "$_vl_result") || return 2
+    j_msg "-${notice}" -pn 'TigerVNC managed desktop launch result:'
+    report_action "$_vl_rc" "$notice" || :
+    j_msg "-${info}" -m "[$launch_attempt_timestamp] TigerVNC outcome (SSH/VNC usability remains separate): $_vl_result"
+    if (( _vl_rc != 0 )); then j_msg "-${err}" -p "TigerVNC incomplete: $_vl_result"; fi
+    if (( _vl_rc != 0 )) && jq -e '.continuation_eligible == true and
+        (.state == "failed" or .state == "cancelled")' <<< "$_vl_result" >/dev/null; then
+        LAUNCH_CLEAN_FAILURE=$TRUE
+    fi
+    return "$_vl_rc"
+}
+
+# One supported executable-pair allowlist for configured and single-recipe launch.
+validate_launch_recipe_pair() {
+    case $1:$2 in
+        konsole:ssh|konsole:local|dolphin:local|dolphin:sftp|vncviewer:ssh|sdl-freerdp:rdp) return 0 ;;
+    esac
+    case $1 in
+        konsole) plan_error 'invalid MODE for konsole; expected local or ssh' ;;
+        dolphin) plan_error 'invalid MODE for dolphin; expected local or sftp' ;;
+        vncviewer) plan_error 'invalid MODE for vncviewer; expected ssh' ;;
+        sdl-freerdp) plan_error 'invalid MODE for sdl-freerdp; expected rdp' ;;
+        *) plan_error 'invalid PROGRAM (redacted); expected konsole, dolphin, vncviewer or sdl-freerdp' ;;
+    esac
+    return 2
+}
+
+launch_preflight() {
+    local _lp_status _lp_managed _lp_observed _lp_i _lp_conflicts _op_i _lp_job
+    for _lp_i in bash jq qdbus6 python3; do
+        command -v "$_lp_i" >/dev/null || { plan_error "missing executable [$_lp_i]"; return 2; }
+    done
+    for ((_lp_i=0; _lp_i<${#planned_desktop[@]}; _lp_i++)); do
+        validate_launch_recipe_pair "${planned_program[$_lp_i]}" "${planned_mode[$_lp_i]}" || return $?
+        case ${planned_program[$_lp_i]}:${planned_mode[$_lp_i]} in
+            dolphin:local)
+                command -v dolphin >/dev/null || return 2
+                _lp_status=$(launch_resource local-path "${planned_target[$_lp_i]}" "$config") || return 2
+                planned_local_path[_lp_i]=$(jq -er 'select(type == "string")' <<< "$_lp_status") || return 2 ;;
+            dolphin:sftp)
+                command -v dolphin >/dev/null || { plan_error 'missing executable [dolphin]'; return 2; }
+                _lp_status=$(python3 "$(dirname -- "${BASH_SOURCE[0]}")/joetoo_kwin_sftp_capability.py" "$sftp_capability_timeout_ms") || return 2
+                planned_remote_uri[_lp_i]=$(jq -er 'select(type == "string")' <<< "${planned_sftp_uri[$_lp_i]}") || return 2 ;;
+            sdl-freerdp:rdp)
+                # Completed entries already own their reservations in this invocation.
+                # Keep the global health checks below and preflight every unlaunched entry.
+                [[ ! ${launch_finished[${planned_desktop[$_lp_i]}]:-} && ! ${launch_done_entry[$_lp_i]:-} ]] || continue
+                _op_i=$_lp_i
+                _lp_job=$(rdp_configured_job) || return 2
+                if ! _lp_status=$(python3 "$(dirname -- "${BASH_SOURCE[0]}")/joetoo_kwin_rdp_launch.py" \
+                    --preflight --job-fd 3 3<<< "$_lp_job" 9>&-); then
+                    plan_error 'RDP preflight refused; check explicit backend, prerequisites and broker state'; return 2
+                fi ;;
+            vncviewer:ssh)
+                if ! _lp_status=$(python3 "$(dirname -- "${BASH_SOURCE[0]}")/joetoo_kwin_vnc_launch.py" --preflight); then
+                    plan_error 'TigerVNC supervisor prerequisites unavailable'; return 2
+                fi ;;
+            konsole:ssh)
+                command -v konsole >/dev/null || return 2
+                command -v nc >/dev/null && command -v ssh >/dev/null || return 2
+                [[ ${planned_target[$_lp_i]} =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.@:-]*$ ]] || {
+                    plan_error 'invalid SSH target'; return 2; } ;;
+            konsole:local)
+                command -v konsole >/dev/null || return 2
+                if [[ ! ${planned_target[$_lp_i]} =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.+-]*$ ]] ||
+                    ! command -v "${planned_target[$_lp_i]}" >/dev/null; then
+                    plan_error 'local target must be an available executable basename'; return 2
+                fi ;;
+            *) plan_error "unsupported executable recipe [${planned_program[$_lp_i]}:${planned_mode[$_lp_i]}]"; return 2 ;;
+        esac
+    done
+    _lp_status=$(qdbus6 "$bus" "$path" "$iface.RegistryStatus") || return 1
+    jq -e '.recovery_snapshot_protocol == 1' <<< "$_lp_status" >/dev/null || {
+        plan_error 'compatible Step 1.7 broker required for launch-intent capture'; return 1; }
+    if [[ -n ${vnc_bounds:-} ]]; then
+        jq -e '.viewer_protocol == 1' <<< "$_lp_status" >/dev/null || {
+            plan_error 'resident lacks TigerVNC X11/XWayland identity capability'; return 2; }
+    fi
+    jq -e '((.recovery // "inactive") == "inactive" or .recovery == "ready") and .managed_close_active != true and .observation.synchronized == true and .presence_counts.uncertain == 0 and .viewer_cleanup_uncertain != true
+        and .request_counts.pending == 0 and .request_counts.running == 0
+        and (.placement_transaction.state == "IDLE" or .placement_transaction.state == "OK"
+             or .placement_transaction.state == "ERROR")' <<< "$_lp_status" >/dev/null || {
+        plan_error 'broker state unresolved or required preflight interface unavailable'; return 1; }
+    jq -e '.initial_layout_protocol == 1 and .initial_layout_active == false' <<< "$_lp_status" >/dev/null || {
+        plan_error 'compatible initial-layout resident/broker required, or initial layout Busy'; return 1; }
+    if [[ ${_op_single:-} ]]; then
+        jq -e '.single_raise_protocol == 1' <<< "$_lp_status" >/dev/null || {
+            plan_error '-L: compatible single-window raise broker/resident required'; return 2; }
+    fi
+    _lp_managed=$(qdbus6 "$bus" "$path" "$iface.ListManaged") || return 1
+    jq -e '.windows | type == "array" and all(.[]; (.intended.desktop | type == "number")
+        and (.intended.slot | type == "number"))' <<< "$_lp_managed" >/dev/null || return 1
+    _lp_observed=$(qdbus6 "$bus" "$path" "$iface.ListObserved") || return 1
+    jq -e '.windows | type == "array"' <<< "$_lp_observed" >/dev/null || return 1
+    for ((_lp_i=0; _lp_i<${#planned_desktop[@]}; _lp_i++)); do
+        [[ ! ${launch_finished[${planned_desktop[$_lp_i]}]:-} && ! ${launch_done_entry[$_lp_i]:-} ]] || continue
+        _lp_conflicts=$(jq -r --argjson d "${planned_desktop[$_lp_i]}" --argjson s "${planned_slot[$_lp_i]}" \
+            '.windows[] | select(.intended.desktop == $d and .intended.slot == $s) | .managed_id' <<< "$_lp_managed") || return 1
+        [[ -z $_lp_conflicts ]] || { plan_error "managed desktop/slot conflict [$_lp_conflicts]"; return 2; }
+        # Observed overlap is a visual warning, never evidence of managed ownership.
+        if jq -e --argjson managed "$_lp_managed" --argjson d "${planned_desktop[$_lp_i]}" \
+            --argjson x "${planned_x[$_lp_i]}" --argjson y "${planned_y[$_lp_i]}" \
+            --argjson w "${planned_width[$_lp_i]}" --argjson h "${planned_height[$_lp_i]}" '
+            .windows[] | . as $win | select(all($managed.windows[]; .window_uuid != $win.uuid)) |
+            select(.on_all_desktops or (.desktops | index($d))) |
+            select(.geometry.x < $x+$w and .geometry.x+.geometry.width > $x
+                and .geometry.y < $y+$h and .geometry.y+.geometry.height > $y)' <<< "$_lp_observed" >/dev/null; then
+            j_msg "-${warn}" -p "Unmanaged window may obscure desktop [${planned_desktop[$_lp_i]}] slot [${planned_slot[$_lp_i]}]"
+        fi
+    done
+}
+
+# The CLI exits after open_plan returns. Keep FD 9 open for that invocation's
+# lifetime; kernel flock cleanup handles normal exit, cancellation and signals.
+# Never unlink this file: replacing its inode could allow two simultaneous locks.
+lock_configured_launcher() {
+    local _ll_runtime=${XDG_RUNTIME_DIR:-} _ll_file
+    if [[ -z $_ll_runtime || ! -d $_ll_runtime || -L $_ll_runtime || ! -O $_ll_runtime ]] ||
+        [[ $(stat -c %a -- "$_ll_runtime" 2>/dev/null) != 700 ]]; then
+        j_msg "-${err}" -p 'Configured launch requires a user-owned mode-700 XDG_RUNTIME_DIR'
+        return 1
+    fi
+    command -v flock >/dev/null || { j_msg "-${err}" -p 'Configured launch requires flock'; return 1; }
+    _ll_file=$_ll_runtime/joetoo-kwin-launch.lock
+    if [[ -L $_ll_file ]] || { [[ -e $_ll_file ]] && [[ ! -f $_ll_file || ! -O $_ll_file ]]; }; then
+        j_msg "-${err}" -p 'Unsafe configured-launch lock file'; return 1
+    fi
+    # Runtime directory is private; creation permissions are private as well.
+    if ! (umask 077; : >> "$_ll_file"); then return 1; fi
+    exec 9>>"$_ll_file" || return 1
+    if ! flock -n 9; then
+        exec 9>&-
+        j_msg "-${err}" -p 'Busy: another configured launcher is active'
+        return 1
+    fi
+}
+
+open_plan() {
+    local _op_dir _op_i _op_failed=0 _op_initial_failed=0 _op_rc _op_state _op_status _op_group _op_payload _op_layout _op_try
+    local _op_attempted=0 _op_completed=0 _op_single="" launch_attempt_timestamp launch_intent_json=""
+    local -a _op_single_fields=("$@")
+    (( $# == 0 )) || _op_single=single
+    local -A launch_finished=() launch_done_entry=()
+    local -a _op_entries=()
+    lock_configured_launcher || return 1
+    _op_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) || return 1
+    # When sourced, this helper's directory is libexec.
+    launch_session_file=${_op_dir}/joetoo-kwin-session.bashrc
+    [[ -r $launch_session_file ]] || return 1
+    declare -a planned_local_path=() planned_remote_uri=()
+    check_plan launch || return $?
+    local _op_required=0 _op_desktop _op_capacity _op_class
+    local -a _op_argv
+    for _op_desktop in "${planned_desktop[@]}"; do
+        (( _op_desktop <= _op_required )) || _op_required=$_op_desktop
+    done
+    _op_capacity=$(launch_resource snapshot) || return 1
+    local _op_current
+    _op_current=$(jq -er '.count | select(type == "number")' <<< "$_op_capacity") || return 1
+    if (( _op_current >= _op_required )); then
+        j_msg "-${notice}" -p "KWin desktops: current [${_op_current}], required [${_op_required}]; existing desktop capacity is adequate"
+    else
+        j_msg "-${notice}" -p "KWin desktops: current [${_op_current}], required [${_op_required}]; append [$((_op_required - _op_current))] missing desktops after confirmation"
+    fi
+    confirm_continue_or_exit || return 1
+    _op_capacity=$(launch_resource provision "$_op_required" "$_op_capacity") || return 1
+    for _op_group in "${desktop_groups[@]}"; do
+      _op_entries=()
+      for ((_op_i=0; _op_i<${#planned_desktop[@]}; _op_i++)); do
+        [[ ${planned_desktop[$_op_i]} == "$_op_group" ]] || continue
+        # Recheck after confirmation and between entries; broker independently
+        # guards each actual submission against concurrent conflicting launches.
+        launch_intent_json=""
+        if ! launch_preflight "$_op_i"; then
+            j_msg "-${err}" -p "Incomplete layout: completed [$_op_completed], failed [$_op_failed], skipped [$(( ${#planned_desktop[@]} - _op_attempted ))]; current cohort not finalized"
+            return 1
+        fi
+        _op_capacity=$(launch_resource verify "$_op_required" "$_op_capacity") || return 1
+        launch_attempt_timestamp=$(timestamp) || launch_attempt_timestamp=unavailable
+        j_msg "-${notice}" -p "[$launch_attempt_timestamp] Launching desktop [${planned_desktop[$_op_i]}] slot [${planned_slot[$_op_i]}]"
+        _op_class=${planned_program[$_op_i]}
+        if [[ $_op_class == dolphin ]]; then
+            if [[ ${planned_mode[$_op_i]} == sftp ]]; then
+                _op_argv=(dolphin --new-window -- "${planned_remote_uri[$_op_i]}")
+                sftp_launch_advisory "${planned_remote_uri[$_op_i]}"
+                j_msg "-${notice}" -p "[$launch_attempt_timestamp] Requesting SFTP location; authentication and remote listing are not verified by this launcher"
+            else
+                _op_argv=(dolphin --new-window -- "${planned_local_path[$_op_i]}")
+            fi
+        elif [[ $_op_class == sdl-freerdp ]]; then
+            _op_argv=() # RDP consumes its structured job, never a Konsole command.
+        else
+            _op_argv=(env JOETOO_SESSION_MODE="${planned_mode[$_op_i]}" JOETOO_SESSION_TARGET="${planned_target[$_op_i]}"
+                konsole --separate -e bash --rcfile "$launch_session_file" -i)
+        fi
+        launch_intent_json=$(configured_restore_intent) || return 2
+        if [[ $launch_intent_json == null ]]; then
+            j_msg "-${warn}" -p 'Recipe remains launchable but cannot be faithfully exported by -S'
+        fi
+        _op_attempted=$((_op_attempted + 1))
+        if launch_configured_window "$_op_class" "${planned_slot[$_op_i]}" "${planned_desktop[$_op_i]}" \
+            "${planned_x[$_op_i]}" "${planned_y[$_op_i]}" "${planned_width[$_op_i]}" "${planned_height[$_op_i]}" \
+            -- "${_op_argv[@]}"; then _op_rc=0
+        else _op_rc=$?; fi
+        if (( _op_rc != 0 )); then
+            _op_failed=$((_op_failed + 1))
+            j_msg "-${err}" -p 'Window failed; layout is incomplete'
+        fi
+        if [[ $_op_class == sdl-freerdp || $_op_class == vncviewer ]] && (( _op_rc != 0 )); then
+            if [[ $LAUNCH_CLEAN_FAILURE ]]; then
+                # This entry is handled, not successful or a reusable historical slot.
+                # The next iteration independently preflights every remaining entry.
+                launch_done_entry[$_op_i]=$TRUE
+                j_msg "-${warn}" -p 'Owned pending mission ended cleanly; continuing incomplete serial plan'
+                continue
+            fi
+            j_msg "-${err}" -p "Remote launch unresolved or registered viewer retained: completed [$_op_completed], failed [$_op_failed], skipped [$(( ${#planned_desktop[@]} - _op_attempted ))]; current cohort incomplete"
+            return 1
+        fi
+        # A local wait failure is not proof that broker work ended. Independently
+        # require terminal exact-ID results before starting another transaction.
+        if [[ $_op_class == vncviewer && $_op_rc == 2 ]]; then
+            j_msg "-${err}" -p 'VNC launch cancelled or finalization unresolved; stopping subsequent launches'; return 1
+        fi
+        [[ -n $launch_registration_id && -n $launch_placement_id ]] || return 1
+        if [[ $_op_class == sdl-freerdp ]]; then
+            # Stage 2 conservatively stops on every unsuccessful RDP result;
+            # generalized known-clean continuation belongs to Stage 3.
+            (( _op_rc == 0 )) || return 1
+            jq -e '.state == "completed" and .registration.state == "registered"
+                and .placement.placement == "succeeded" and .remote_session == "unverified"
+                and .registration.window_uuid == .placement.window_uuid
+                and .registration.managed_id == .placement.managed_id' <<< "$launch_rdp_result" >/dev/null || return 1
+            _op_state=$(qdbus6 "$bus" "$path" "$iface.GetManaged" \
+                "$(jq -er '.registration.managed_id' <<< "$launch_rdp_result")") || return 1
+            jq -e --argjson result "$launch_rdp_result" '.state == "FOUND" and .window.presence == "present"
+                and .window.placement == "succeeded" and .window.window_uuid == $result.registration.window_uuid
+                and .window.request_id == $result.registration.request_id' <<< "$_op_state" >/dev/null || return 1
+        else
+        _op_state=$(qdbus6 "$bus" "$path" "$iface.PollManagedLaunch" "$launch_registration_id") || return 1
+        jq -e --arg class "$_op_class" '.state == "registered" or .state == "failed" or ($class == "vncviewer" and (.state == "timeout" or .state == "ambiguous"))' <<< "$_op_state" >/dev/null || return 1
+        _op_status=$(qdbus6 "$bus" "$path" "$iface.Status" "$launch_placement_id") || return 1
+        case $_op_status in OK*|ERROR*) ;; *) j_msg "-${err}" -p 'Unresolved placement; stopping incomplete layout'; return 1 ;; esac
+        fi
+        launch_done_entry[$_op_i]=$TRUE
+        if (( _op_rc == 0 )); then
+            _op_completed=$((_op_completed + 1))
+            _op_entries+=("$(jq -cn --arg id "$launch_registration_id" --arg layer "${planned_layer[$_op_i]}" \
+                '{registration_request_id:$id,layer:$layer}')")
+        fi
+      done
+      if (( ${#_op_entries[@]} > 0 )); then
+        _op_payload=$(printf '%s\n' "${_op_entries[@]}" | jq -sc \
+            --argjson timeout "$initial_focus_timeout_ms" --argjson interval "$initial_focus_poll_interval_ms" --arg single "$_op_single" \
+            '{entries:.,focus_timeout_ms:$timeout,focus_poll_interval_ms:$interval} +
+             (if $single == "single" then {single_raise:true} else {} end)') || return 1
+        _op_layout=$(qdbus6 "$bus" "$path" "$iface.SubmitInitialLayout" "$_op_payload") || return 1
+        qdbus6 org.kde.kglobalaccel /component/kwin org.kde.kglobalaccel.Component.invokeShortcut joetoo_bridge_initial_layout >/dev/null || return 1
+        _op_state=""
+        j_msg "-${notice}" -p "Initializing desktop [$_op_group] stack/focus; geometry remains separately verified"
+        for ((_op_try=0; _op_try<100; _op_try++)); do
+            _op_state=$(qdbus6 "$bus" "$path" "$iface.InitialLayoutStatus" "$_op_layout") || return 1
+            _op_status=$(jq -er '.state' <<< "$_op_state") || return 1
+            case $_op_status in SUCCEEDED|FAILED) break ;; PENDING|RUNNING) sleep .1 ;; *) return 1 ;; esac
+        done
+        j_msg "-${notice}" -pn "Desktop [$_op_group] initial stacking/focus result:"
+        if [[ $_op_status == SUCCEEDED ]]; then
+            report_action 0 "$notice" || return 1
+        else
+            report_action 1 "$notice" || :
+        fi
+        j_msg "-${info}" -m "Initial layout: $_op_state"
+        if [[ $_op_status != SUCCEEDED ]]; then
+            j_msg "-${err}" -p "Initial stack/focus incomplete: $_op_state"
+            [[ $_op_status == FAILED ]] || return 1
+            _op_initial_failed=$((_op_initial_failed + 1))
+        fi
+      fi
+      launch_finished[$_op_group]=$TRUE
+    done
+    if (( _op_initial_failed > 0 )); then
+        j_msg "-${err}" -p "Initial stacking/focus incomplete for [$_op_initial_failed] desktop groups; window placement results remain separate"
+    fi
+    j_msg "-${notice}" -p "Entries: completed [$_op_completed], failed [$_op_failed], skipped [$(( ${#planned_desktop[@]} - _op_attempted ))]; incomplete desktop cohorts [$_op_initial_failed]"
+    j_msg "-${notice}" -pn "Configured layout: [$(( ${#planned_desktop[@]} - _op_failed ))/${#planned_desktop[@]}] windows completed ..."
+    if (( _op_failed == 0 && _op_initial_failed == 0 )); then report_action 0 "$notice"; else report_action 1 "$notice"; fi
+}
