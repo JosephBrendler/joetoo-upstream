@@ -11,8 +11,9 @@
 # Input:  directory (recursive shell-shebang discovery) or a single shell file.
 # Output: one generated combined stub for an entire selected input set.
 
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+## shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+## shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+# shellcheck source=./script_header_joetoo.shellcheck_filtered_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}

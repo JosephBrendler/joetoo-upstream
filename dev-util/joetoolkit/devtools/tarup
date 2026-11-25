@@ -15,12 +15,12 @@
 # @req run from a category directory directly below sources_repository
 # @req package must provide LICENSES.package and COPYRIGHT.exceptions
 # @rule validates package copyright metadata before constructing a release
+# @rule TARBALL.exclusions omits paths from copyright checks and tar archive
 # @rule stages and validates complete licensing before archiving old release
 # @rule archives the oldest existing tarball before creating the new tarball
 # @note zero existing tarballs is a valid first-release condition
 
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+# shellcheck source=./script_header_joetoo.shellcheck_filtered_stub
 source /usr/sbin/script_header_joetoo
 
 PN=${0##*/}   #  like =$(basename $0) but w/o subshell and function call
@@ -37,13 +37,14 @@ editor="/bin/nano"
 
 #-----[ variables ]--------------------------------------------------
 
-taroptions="-cvjpf"                # options for tar command
+# GNU tar options are assembled in create-new-tarball with a Bash array.
 to_be_archived_tarball_version=""  # oldest (to-be-archived) version string (to be determined)
 latest_tarball_version=""          # latest version string (to be determined)
 new_tarball_version=""             # new version string (to be calculated)
 output_tarball_filename=""         # filename for the new version's tarball
 
 declare -a tarball_versions=()     # indexed array of version strings
+declare -a tarball_exclusions=()   # normalized ./package-relative exclusions
 
 current_version_numbers=( 0 0 0 )  # array of digits constituting the parts (major minor patch) of current version number
 new_version_numbers=()             # array to hold new version's digits, when calculated
@@ -52,6 +53,13 @@ declare -a VALID_SPDX=()           # array of all valid SPDX License Identifiers
 declare -a LICENSES_list=()        # array of license texts $PN should install
 
 STAGING_DIR=""                     # temp dir for building tarball structure
+
+# cache spdx licence list in this directory; refresh only if necessary
+spdx_cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/joetoolkit"
+# assign spdx web site url
+spdx_url="https://spdx.org/licenses/licenses.json"
+# assign maximum spdx license list size for sanity check
+spdx_list_max=800   # as of 2026-11-23, the list returns with 708 license codes
 
 #-----[ functions ]--------------------------------------------------
 
@@ -155,6 +163,76 @@ validate-file-copyright() {
 # @rule exactly one matching joetoo copyright statement is required
 # @rule right-most four-digit year is treated as the ending copyright year
 
+load-tarball-exclusions() # Read optional package-relative release exclusions
+{
+    local manifest="${SOURCE_DIR%/}/TARBALL.exclusions"
+    local entry="" relative=""
+
+    tarball_exclusions=()
+    [ -e "$manifest" ] || return 0
+    if [ ! -f "$manifest" ] || [ ! -r "$manifest" ]; then
+        j_msg "-${err}" -p "Cannot read TARBALL.exclusions [$manifest]"
+        return 1
+    fi
+
+    while IFS= read -r entry || [ -n "$entry" ]; do
+        # blank lines and comments are not exclusions
+        case "$entry" in
+            ''|\#*) continue ;;
+            ./*) ;;
+            *) j_msg "-${err}" -p "Exclusion must begin with ./ [$entry]"; return 1 ;;
+        esac
+
+        relative="${entry#./}"
+        relative="${relative%/}"
+        # literal names only: no absolute paths, traversal, empty components,
+        # or glob patterns; do not expand entries as shell or tar patterns
+        case "$relative" in
+            ''|.|..|../*|*/../*|*/..|./*|*/./*|*/.|*//*|/*|*'*'*|*'?'*|*'['*|*']'*)
+                j_msg "-${err}" -p "Unsafe TARBALL.exclusions entry [$entry]"
+                return 1
+                ;;
+        esac
+        case "$relative" in
+            COPYRIGHT.exceptions|LICENSES.package|TARBALL.exclusions)
+                j_msg "-${err}" -p "Cannot exclude release metadata [$entry]"
+                return 1
+                ;;
+        esac
+
+        # missing optional paths (e.g. ./archive) are legitimate, but
+        # retain only exclusions that exist in the source tree;
+        # -L also recognizes dangling symbolic links, which -e does not
+        if [ -e "${SOURCE_DIR%/}/$relative" ] ||
+           [ -L "${SOURCE_DIR%/}/$relative" ]; then
+            tarball_exclusions+=( "./$relative" )
+        else
+            j_msg "-${debug}" -p "Optional exclusion not present [$entry]"
+        fi
+
+    done < "$manifest"
+
+    j_msg "-${notice}" -p "Loaded [${#tarball_exclusions[@]}] TARBALL.exclusions entries"
+}
+# @usage load-tarball-exclusions
+# @ret 0 optional manifest loaded (or absent); nonzero invalid manifest
+# @vars SOURCE_DIR tarball_exclusions
+
+is-tarball-excluded() # Literal exact-file or directory-prefix match
+{
+    local candidate="$1" excluded=""
+    # check candidate against iterated excludion list; return 0 immediatly when matched
+    for excluded in "${tarball_exclusions[@]}"; do
+        if [[ "$candidate" == "$excluded" || "$candidate" == "$excluded/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+# @usage is-tarball-excluded ./package-relative/path
+# @ret 0 candidate excluded; 1 candidate included
+# @vars tarball_exclusions
+
 check-pkg-copyright-years() {
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     local current_year=""
@@ -172,6 +250,11 @@ check-pkg-copyright-years() {
         # if this file is an exception, just skip it
         # first, strip SOURCE_DIR from prefix and prepend ./ to normalize $file pathname rel to pkg for comparison to exceptions
         relative_file="./${file#"${SOURCE_DIR%/}/"}"
+        # Files intentionally absent from the release need no copyright review.
+        if is-tarball-excluded "$relative_file"; then
+            j_msg "-${debug}" -p "Skipping excluded source [$relative_file]"
+            continue
+        fi
         #    grep --help | grep -E ' -F| -x| -q'
         #      -F, --fixed-strings   - PATTERNS are strings (interpret $file [incl rel path ./] literally, not as a regex)
         #      -x, --line-regexp     - match only whole lines (require entire line = pathname; prevent ./foo from matching ./foobar)
@@ -379,53 +462,130 @@ archive-old-version() {
 # @vars archive_tarball_filename response msg
 # @rule user confirmation is required before moving an existing tarball
 
+# Validate a download before it can become the cached SPDX list.
+# Keep the existing 1..750 active-license sanity bounds.
+validate_spdx_json_file() {
+    
+    [ -s "$1" ] || return 1
+    jq -e '
+        (.licenseListVersion | type == "string" and length > 0) and
+        (.licenses | type == "array") and
+        ([.licenses[] | select(.isDeprecatedLicenseId == false) | .licenseId] |
+         length >= 1 and length <= 750 and all(.[]; type == "string" and length > 0))
+    ' "$1" >/dev/null 2>&1
+}
+# @usage validate_spdx_json_file FILE
+# @ret 0 - structurally valid SPDX license list with 1..750 active IDs
+# @ret nonzero - malformed, incomplete, or unreadable file
+# @deps jq
+
 get_valid_spdx() {
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
-    # read into and array the official list of SPDX License Identifiers
-    local spdx_json=""
-    local spdx_version=""
-    local result=0
+    local spdx_cache_file="${spdx_cache_dir}/spdx-licenses.json"
+    local spdx_candidate="" spdx_source="" spdx_http="" spdx_json=""
+    local spdx_version="" spdx_ids="" result=0
+    local CACHE_VALID=$FALSE
+    local -a curl_args=()
+    # MANPAGER=cat man curl | grep -E " -f,| -s,| -S,| -L,| -R,| -z,| -o,| -w,| -m|^${W0}--connect-timeout"
+    #   -f, --fail
+    #   -s, --silent
+    #   -S, --show-error
+    #   -L, --location
+    #   -R, --remote-time  (**)
+    #   --connect-timeout <seconds>
+    #   -m, --max-time <seconds>
+    #   -z, --time-cond <time>  (**)
+    #   -o, --output <file>
+    #   -w, --write-out <format>
+    curl_args+=( -fsSL -R --connect-timeout 10 -m 30 )
 
-    j_msg "-${notice}" -p -n "retrieving current SPDX License List ..."
-    # use curl to read in the json file on the official site; flags --
-    #    -f = fail on server errors
-    #    -s = silent mode
-    #    -S = show errors when used with -s
-    #    -L = location (follow redirects)
-    if spdx_json="$( curl -fsSL https://spdx.org/licenses/licenses.json )"; then result=0; else result=$?; fi
-    handle_result "$result" "" "" "${notice}" || die "failed to retrieve current SPDX License List"
+    # do not let an interrupted download overwrite the last known-good copy
+    mkdir -p -- "$spdx_cache_dir" || die "cannot create SPDX cache directory [$spdx_cache_dir]"
+    if [ -f "$spdx_cache_file" ] && validate_spdx_json_file "$spdx_cache_file"; then
+        CACHE_VALID=$TRUE
+        # (**) -R preserves the server's Last-Modified timestamp on the downloaded file;
+        # and -z sends an If-Modified-Since request using the existing cached file's mtime;
+        # if the server honors it and the resource is unchanged, it returns HTTP 304 and no body
+        curl_args+=( -z "$spdx_cache_file" )
+    fi
+    # use -o to have curl download into a temporary file (spdx_candidate) in the cache directory;
+    # Then later, only after validating HTTP 200 content, atomically replace the cache via mv
+    # (if the file is not newer, HTTP 304 transfers no JSON body, and the existing cache remains untouched)
+    spdx_candidate=$(mktemp "${spdx_cache_dir}/.spdx-licenses.json.XXXXXXXX") || \
+        die "cannot create temporary SPDX download file"
+    curl_args+=( -o "$spdx_candidate" )
+    # write curl output as formatted metadata; single-quote '%{http_code}' to treat literally
+    # ( %{http_code} = 3-digit numerical HTTP status code e.g., 200, 304, 404)
+    curl_args+=( -w '%{http_code}' )
 
-    j_msg "-${notice}" -p -n "Creating array of VALID_SPDX License IDs from list ..."
-    # use jq to read license IDs
-    if readarray -t VALID_SPDX < <(
-        # use jq to parse the json data .licenses field
-        # select those marked as licenseId but not isDeprecated...
-        jq -r '.licenses[]
-        | select(.isDeprecatedLicenseId == false)
-        | .licenseId' <<< "$spdx_json"
-    ); then result=0; else result=$?; fi
-    handle_result "$result" "ingested: [${#VALID_SPDX[@]}]" "" "${notice}" || \
-        die "failed to create array of VALID_SPDX License IDs"
+    j_msg "-${notice}" -p "checking current SPDX License List ..."
+    if spdx_http=$( curl "${curl_args[@]}" "$spdx_url" ); then
+        case "$spdx_http" in
+            200)
+                if validate_spdx_json_file "$spdx_candidate"; then
+                    # (**) curl -R preserved the remote Last-Modified mtime for curl -z;
+                    # rename the validated download into place on the same filesystem;
+                    # the cache remains unchanged until the replacement is ready
+                    if mv -f -- "$spdx_candidate" "$spdx_cache_file"; then
+                        spdx_source="$spdx_cache_file"
+                        j_msg "-${notice}" -p "${BGon}downloaded and cached updated SPDX list${Boff}"
+                    else
+                        rm -f -- "$spdx_candidate"
+                        die "${BRon}cannot install SPDX cache file [$spdx_cache_file]${Boff}"
+                    fi
+                else
+                    j_msg "-${warn}" -p "${BYon}SPDX download failed validation; ignoring it${Boff}"
+                fi
+                ;;
+            304)
+                if [ "$CACHE_VALID" ]; then
+                    spdx_source="$spdx_cache_file"
+                    j_msg "-${notice}" -p "${BGon}SPDX list unchanged (HTTP 304); using cache${Boff}"
+                else
+                    j_msg "-${warn}" -p "${BYon}SPDX returned HTTP 304 without a valid local cache${Boff}"
+                fi
+                ;;
+            *)
+                j_msg "-${warn}" -p "${BYon}Unexpected SPDX HTTP response ${BBon}[${Boff}$spdx_http${BBon}]${Boff}"
+                ;;
+        esac
+    else
+        j_msg "-${warn}" -p "${BYon}SPDX request failed; checking existing cache${Boff}"
+    fi
+    rm -f -- "$spdx_candidate"
 
-    #  readarray -t VALID_SPDX < <( curl -fsSL https://spdx.org/licenses/licenses.json |
-    #     jq -r '.licenses[] | select(.isDeprecatedLicenseId == false) |
-    #     .licenseId' )  ==> echo "${#VALID_SPDX[@]}" ==> 695 // as of 20260831
-    # validate ingested array "sanity"
-    [ "${#VALID_SPDX[@]}" -gt 750 ] && \
+    if [ -z "$spdx_source" ] && [ "$CACHE_VALID" ]; then
+        spdx_source="$spdx_cache_file"
+        j_msg "-${warn}" -p "${BYon}Using previously validated SPDX cache; freshness unconfirmed${Boff}"
+    fi
+    [ -n "$spdx_source" ] || die "no valid SPDX license list available"
+
+    # Preserve the existing public behavior: build VALID_SPDX and report version.
+    spdx_json=$(< "$spdx_source") || die "cannot read SPDX list [$spdx_source]"
+    j_msg "-${notice}" -p "Creating array of VALID_SPDX License IDs from list ..."
+    spdx_ids=$(jq -er '.licenses[] | select(.isDeprecatedLicenseId == false) | .licenseId' \
+               <<< "$spdx_json") || die "failed to extract SPDX License IDs"
+    readarray -t VALID_SPDX <<< "$spdx_ids"
+    result=$?
+    [ "${#VALID_SPDX[@]}" -gt "$spdx_list_max" ] && \
         die "retrieved SPDX License List appears invalid (too big) [${#VALID_SPDX[@]} identifiers]"
     [ "${#VALID_SPDX[@]}" -lt 1 ] && \
         die "retrieved SPDX License List appears incomplete [${#VALID_SPDX[@]} identifiers]"
+    j_msg "-${notice}" -p -n "Done creating array -"
+    handle_result "$result" "ingested: [${#VALID_SPDX[@]}]" "" "$notice"
 
     j_msg "-${notice}" -p -n "Checking version of SPDX List ..."
-    if spdx_version="$( jq -r '.licenseListVersion' <<< "$spdx_json" )"; then result=0; else result=$?; fi
-    handle_result "$result" "${spdx_version}" "" "${notice}" || die "failed to get SPDX List version"
-
+    spdx_version=$(jq -er '.licenseListVersion' <<< "$spdx_json") || \
+        die "failed to get SPDX List version"
+    handle_result $? "$spdx_version" "" "$notice"
 }
 # @usage get_valid_spdx
-# @ret 0 - current SPDX license identifiers retrieved and validated
-# @deps curl jq readarray handle_result j_msg
-# @vars VALID_SPDX
-# @req network access to the official SPDX license-list endpoint
+# @ret 0 - SPDX identifiers retrieved or reused from validated cache
+# @deps curl jq mktemp mv mkdir readarray j_msg
+# @vars VALID_SPDX XDG_CACHE_HOME HOME
+# @rule conditional HTTP request uses cached Last-Modified timestamp
+# @rule failed refresh can reuse only a validated cache
+# @rule downloaded JSON is validated before atomic replacement
 # @rule deprecated SPDX License Identifiers are excluded
 # @rule retrieved identifier count must be between 1 and 750
 
@@ -556,20 +716,32 @@ stage-new-tarball() {
 create-new-tarball() {
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     output_tarball_filename="${SOURCE_DIR}-${new_tarball_version}.tbz2"
-    local result=0
+    local result=0 excluded="" relative="" command_preview=""
+    local -a _tar_args=()
+
+    _tar_args=( -c -v -j -p -f "$output_tarball_filename" -C "$STAGING_DIR" )
+    # Archive members are rooted under SOURCE_DIR's basename. Use literal,
+    # anchored GNU tar exclusions, not wildcard/substring matching.
+    _tar_args+=( --anchored --no-wildcards )
+    for excluded in "${tarball_exclusions[@]}"; do
+        relative="${excluded#./}"
+        _tar_args+=( "--exclude=${SOURCE_DIR##*/}/$relative" )
+    done
+    _tar_args+=( "${SOURCE_DIR##*/}" )
+    printf -v command_preview '%q ' tar "${_tar_args[@]}"
 
     # explain yourself
     separator "${PN}-${BUILD}" "(${FUNCNAME[0]})"
-    j_msg "-${notice}" -p "${BYon}About to display tarball file tree with command: ${BGon}tree ${BMon}-a ${Boff}${STAGING_DIR%/}/"
+    j_msg "-${notice}" -p "${BYon}About to display staging tree (excluded paths may still appear here): ${BGon}tree ${BMon}-a ${Boff}${STAGING_DIR%/}/"
 
     # display staging dir content for review
     tree -a "${STAGING_DIR%/}/"
 
     j_msg "-${notice}" -p "${BYon}About to run command:${Boff}"
-    j_msg "-${notice}" -mp "    ${BGon}tar ${taroptions} ${output_tarball_filename} -C ${STAGING_DIR} ${SOURCE_DIR##*/}"
+    j_msg "-${notice}" -mp "    ${BGon}${command_preview}${Boff}"
     confirm_continue_or_exit
-    # use -C to got to staging dir first and ##*/ to tar the basename of source_dir found there
-    if tar "${taroptions}" "${output_tarball_filename}" -C "${STAGING_DIR}" "${SOURCE_DIR##*/}"; then
+    # -C selects the staging root; the member name is SOURCE_DIR's basename.
+    if tar "${_tar_args[@]}"; then
         result=0; else result=$?; fi
     j_msg "-${notice}" -p -n "done building tarball; result:"
     handle_result "$result" "" "" "${notice}" || die "failed to build tarball"
@@ -586,7 +758,7 @@ create-new-tarball() {
 # @ret 1 - staging cleanup failed
 # @deps tree tar confirm_continue_or_exit cleanup-staging handle_result j_msg
 # @vars SOURCE_DIR new_tarball_version output_tarball_filename
-# @vars STAGING_DIR taroptions msg
+# @vars STAGING_DIR tarball_exclusions _tar_args command_preview
 # @rule user confirmation is required before creating the tarball
 # @rule staging cleanup follows successful tarball creation
 
@@ -625,6 +797,10 @@ if [ $# -eq 2 ] ; then
 else
     UPGRADE="patch"; j_msg "-${notice}" -p "initiating patch upgrade (as default) ..."
 fi
+
+# Resolve optional release exclusions before copyright validation. The same
+# entries govern both the copyright scan and the final GNU tar command.
+load-tarball-exclusions || die "failed to load TARBALL.exclusions"
 
 # check package files for proper copyright statements
 check-pkg-copyright-years || die "failed to check-pkg-copyright-years"

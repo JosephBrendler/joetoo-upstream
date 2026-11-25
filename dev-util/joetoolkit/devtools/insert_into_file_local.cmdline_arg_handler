@@ -12,12 +12,13 @@
 #   set result=7 for file not found (to differentiate from error)
 #   set result = 1  for error
 
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
-#. /usr/sbin/script_header_joetoo
-# uncomment above and disable below for thorough ShellCheck only - parent sources it and this file
-# SC2154: Variable is referenced but not assigned
-# shellcheck disable=SC2154
+# This file is sourced by its calling application, which has already loaded
+# script_header_joetoo. Do not source the header again here.
+#
+# To lint this module independently, use validate_scripts -l -C with the
+# appropriate script_header_joetoo.shellcheck_filtered_stub
+# (use shellcheck_stub_filter ./ to generate one for the entire $PWD, if needed)
+# The context stub is analyzed by ShellCheck, never executed by Bash
 
 handle_local_arg() # (POSIX) local compound arg handler to extend cli in script_header_joetoo
 { hla_ret=0; _hla_arg="$1"; _hla_operand="$2"

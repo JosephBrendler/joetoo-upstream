@@ -1,0 +1,6 @@
+# list of package-relative pathnames for development content that should NOT be distributed as sources
+./devtools/script_header_joetoo.shellcheck_filtered_stub
+# joetoo standard policy - always exclude these development subdirectories if they exist
+./archive
+./tools
+./tests

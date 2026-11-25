@@ -4,8 +4,9 @@
 #
 # validate_scripts - check syntax or linting in all files found in specified directory tree
 
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
-# shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+## shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_var_stub
+## shellcheck source=/usr/sbin/script_header_joetoo.shellcheck_func_stub
+# shellcheck source=./script_header_joetoo.shellcheck_filtered_stub
 source /usr/sbin/script_header_joetoo
 source /usr/sbin/setTIMEFORMAT.hdr
 
@@ -47,13 +48,30 @@ LINT=$FALSE   #........# set if flags dictate, to run shellcheck instead of just
 #......................# Note: SHELLCHECK must be $TRUE (installed) to use LINT
 TIMERS=$TRUE   #.......# set if flags dictate, to time overall and per-file execution
 
+#-----[ ShellCheck context configuration ]-------------------------------------
+# Enable optional lint-only context (-C); Bash never executes the context stub
+CONTEXT_ENABLED=$FALSE  # optional ShellCheck-only lint context
+# With -C=FILE, context_file is resolved from the specified context_explicit pathname for every applicable target.
+# With -C alone, context_file is discovered independently for each target using nearest-ancestor lookup.
+context_explicit=''
+# Physical invocation directory; upper boundary for ancestor discovery.
+CONTEXT_ROOT=$(pwd -P) || die 'cannot resolve invocation PWD'
+# Accumulate context-check failures so later successful files cannot mask them.
+context_exit_status=0
+# Per-target context_file is resolved inside the checking loop:
+#   -C=FILE : use the context_explicit pathname (no automatic discovery).
+#   -C      : search from each target's directory upward through CONTEXT_ROOT.
+# ShellCheck analyzes the resolved stub before the target, allowing it to
+# recognize caller-provided globals/functions (including avoiding false SC2154
+# warnings). Neither source file is executed during linting.
+
 # initialize other variables expected in the joetoo ecosystem
 logFile="/var/log/${PN}.log"
 
 # set up varlist for show_config
 varlist="PN BUILD verbosity loglevel bool.DEBUG bool.QUIET bool.LOGGING
-    bool.UNICODE_CAPABLE bool.UNICODE_DISABLE
-    rlv.logFile rlv.target
+    bool.UNICODE_CAPABLE bool.UNICODE_DISABLE bool.CONTEXT_ENABLED
+    rlv.logFile rlv.target rlv.context_explicit
     bool.TIMERS bool.SHELLCHECK bool.COMPACT bool.FAILURES_ONLY bool.LINT
 "
 
@@ -74,6 +92,10 @@ usage() {
     j_msg "-${notice}" -mp "$msg"
     msg="    ${BMon}-t|--timers${Boff} ${Con}....: ${BCon}toggle overall & per-file timers (default: on)${Boff}"
     j_msg "-${notice}" -mp "$msg"
+    msg="    ${BMon}-C|--context${Boff} ${Con}...: ${BCon}auto-find nearest ShellCheck context stub${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${BMon}-C=FILE${Boff} ${Con}........: ${BCon}use FILE as explicit ShellCheck lint context${Boff}"
+    j_msg "-${notice}" -mp "$msg"
     msg="    ${BMon}-h|--help${Boff} ${Con}......: ${BCon}Display this text${Boff}"
     j_msg "-${notice}" -mp "$msg"
     j_msg "-${notice}" -m "${BYon}Notes --${Boff}"
@@ -89,7 +111,13 @@ usage() {
     j_msg "-${notice}" -mp "$msg"
     msg="        ${Con} perl/python (currently) syntax-checking only)${Boff}"
     j_msg "-${notice}" -mp "$msg"
-    msg="    ${Con}(4) If TIMERS is not toggled off by ${BMon}-t${Boff} ${Con}millisecond resolution timing${Boff}"
+    msg="    ${Con}(4) -C requires -l; without =FILE it searches from each target's directory${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${Con}    upward to the invocation PWD (inclusive); nearest stub wins.${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${Con}    Missing or unreadable context fails the check; no silent fallback.${Boff}"
+    j_msg "-${notice}" -mp "$msg"
+    msg="    ${Con}(5) If TIMERS is not toggled off by ${BMon}-t${Boff} ${Con}millisecond resolution timing${Boff}"
     j_msg "-${notice}" -mp "$msg"
     msg="        ${Con} is recorded both for each file processed and for the entire job.${Boff}"
     j_msg "-${notice}" -mp "$msg"
@@ -126,6 +154,10 @@ normalize_cmdline() {
             --syntax)    flags+=( s ) ;;
             --lint)      flags+=( l ) ;;
             --timers)    flags+=( t ) ;;
+            --context)   flags+=( C ) ;;
+            --context=*)
+                [[ ${arg#--context=} ]] || { j_msg "-${err}" -p '--context= requires a file'; exit 2; }
+                flags+=( "C=${arg#--context=}" ) ;;
             --help)      flags+=( h ) ;;
 
             --*) # reject any other -- prefixed flag as invalid
@@ -134,6 +166,10 @@ normalize_cmdline() {
                 exit 1
                 ;;
 
+            -C=*) # explicit context: separate syntax avoids consuming target pathname
+                [[ ${arg#-C=} ]] || { j_msg "-${err}" -p '-C= requires a file'; exit 2; }
+                flags+=( "C=${arg#-C=}" ) ;;
+
             -?*) # remove leading - and examine char-by-char (possible clustered short options)
                 chars="${arg#-}"
 
@@ -141,11 +177,12 @@ normalize_cmdline() {
                     ch="${chars:0:1}"   # assign first char as current character being parsed
                     chars="${chars:1}"  # strip first char and keep the remainder
 
-                    # normalize upper-case short options (${var,,} is to_lower like ${var^^} is to_upper)
-                    ch="${ch,,}"
+                    # Keep capital C distinct from lowercase -c (compact).
+                    # Other options preserve the existing case-insensitive policy.
+                    [[ $ch == C ]] || ch="${ch,,}"
 
                     case "$ch" in
-                        c|f|s|l|t|h)   # all currently allowed flags
+                        c|f|s|l|t|h|C)   # optional context accepts no separate operand
                             flags+=( "$ch" )
                             ;;
                         *)
@@ -175,6 +212,8 @@ parse_cmdline() {
             s) LINT=$FALSE ;;
             l) LINT=$TRUE ;;
             t) if [ "$TIMERS" ] ; then TIMERS=$FALSE; else TIMERS=$TRUE; fi ;;
+            C) CONTEXT_ENABLED=$TRUE; context_explicit='' ;;
+            C=*) CONTEXT_ENABLED=$TRUE; context_explicit=${arg#C=} ;;
             h) usage; exit 0 ;;
         esac
     done
@@ -276,6 +315,61 @@ choose_checker() {
     [ -n "$executable" ] && [ -x "$executable" ]
 }
 
+# Walk from the checked file's physical parent toward the invocation PWD.
+# An explicit context may lie elsewhere; only discovery is root-bounded.
+find_shellcheck_context() # Print selected lint context, without executing it
+{
+    local checked_file=$1 context_dir candidate
+    # standard stub file name created by joetoolkit's shellcheck_stub_filter tool
+    local stub=script_header_joetoo.shellcheck_filtered_stub
+    if [[ $context_explicit ]]; then
+        candidate=$context_explicit
+        [[ -f $candidate && -r $candidate ]] || return 1
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+    context_dir=$(cd -- "$(dirname -- "$checked_file")" && pwd -P) || return 2
+    case $context_dir in
+        "$CONTEXT_ROOT"|"$CONTEXT_ROOT"/*) ;;
+        *) return 2 ;;
+    esac
+    while :; do
+        candidate=$context_dir/$stub
+        if [[ -f $candidate ]]; then
+            [[ -r $candidate ]] || return 1
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+        [[ $context_dir != "$CONTEXT_ROOT" ]] || break
+        context_dir=${context_dir%/*}
+        [[ $context_dir ]] || context_dir=/
+    done
+    return 1
+}
+# @usage find_shellcheck_context CHECKED_FILE
+# @ret 0 with selected path on stdout; 1 if missing/unreadable; 2 if outside PWD.
+# @rule Nearest parent wins; never search above the original physical PWD.
+
+# ShellCheck reads the wrapper from stdin, follows two literal source paths,
+# and reports issues at the original target filename/line number. Neither
+# source file is run. Use Bash %q to preserve literal spaces/special characters.
+# Do not pipe the wrapper through an intermediate command that changes status.
+run_context_shellcheck() # Lint target with an additional static-only context
+{
+    local checked_file=$1 context_file=$2 dialect=$3
+    local target_abs context_abs
+    target_abs=$(cd -- "$(dirname -- "$checked_file")" && printf '%s/%s' "$(pwd -P)" "$(basename -- "$checked_file")") || return 2
+    context_abs=$(cd -- "$(dirname -- "$context_file")" && printf '%s/%s' "$(pwd -P)" "$(basename -- "$context_file")") || return 2
+    {
+        printf '#!/bin/sh\n'
+        printf '. %q\n' "$context_abs"
+        printf '. %q\n' "$target_abs"
+    } | shellcheck -x -s "$dialect" -P "$CONTEXT_ROOT" -
+}
+# @usage run_context_shellcheck TARGET CONTEXT SHELL_DIALECT
+# @ret ShellCheck status; files are parsed but never sourced by a shell.
+# @req Target and context are readable files; only compatible shell sources.
+
 sanity_check() {
     j_msg "-${debug}" -p "in ${FUNCNAME[0]}"
     # generalize for more than one thing to check - return nonzero if any fail, and caller should then die
@@ -285,6 +379,10 @@ sanity_check() {
         FLAGGED=$TRUE
     fi
     # placeholder for other checks
+    if [ "$CONTEXT_ENABLED" ] && [ ! "$LINT" ]; then
+        j_msg "-${err}" -p '-C/--context requires -l/--lint (last -s/-l option wins)'
+        FLAGGED=$TRUE
+    fi
     [ "$FLAGGED" ] && return 1
     return 0
 }
@@ -324,6 +422,19 @@ millis2time()   # (POSIX) convert integer ms to time format
 # @rule hours, minutes, seconds, and milliseconds are modulo clock fields
 # @note days are unbounded; other fields are clock-modulo values;
 # @append output represents elapsed duration, not wall time
+
+# Invoke the usual checker, except when a shell target has an explicit lint
+# context. This keeps the existing timing/reporting branches unchanged.
+run_selected_check() # Run the file's checker, optionally with lint context
+{
+    if [[ $CONTEXT_ENABLED && $context_dialect ]]; then
+        run_context_shellcheck "$x" "$context_file" "$context_dialect"
+    else
+        "$executable" "${arguments[@]}" "$x"
+    fi
+}
+# @usage run_selected_check
+# @ret Underlying checker result.
 
 
 #-----[ main script ]-------------------------------------------------------------------
@@ -365,8 +476,16 @@ for x in "${target_array[@]}" ; do
     IFS= read -r shebang_line < "$x"
     candidate="${shebang_line:0:3}"
 
-    # warn and skip if the captured text does not match standard shebang
-    [ "$candidate" = "$shebang" ] || { j_msg "-${debug}" -p "no shebang [$shebang] in file [$x]; skipping"; continue ; }
+    # With explicit context mode, a shebang-less source is treated as Bash;
+    # otherwise retain the original shebang-based checker selection.
+    if [[ $candidate != "$shebang" ]]; then
+        if [ "$CONTEXT_ENABLED" ] && [[ ! -d $target ]]; then
+            shebang_line='#!/bin/bash'
+        else
+            j_msg "-${debug}" -p "no shebang [$shebang] in file [$x]; skipping"
+            continue
+        fi
+    fi
 
     # call choose_checker;warn and skip if shebang is invalid
     if ! choose_checker "$shebang_line"; then
@@ -374,6 +493,29 @@ for x in "${target_array[@]}" ; do
         continue
     fi
 
+
+    # A context affects ShellCheck shell targets only; Python/Perl retain their
+    # native checkers. Determine the dialect from the already-selected -s flag.
+    context_dialect=''; context_file=''
+    if [ "$CONTEXT_ENABLED" ] && [[ $executable == "$(command -v shellcheck)" ]]; then
+        for (( context_i=0; context_i<${#arguments[@]}; context_i++ )); do
+            if [[ ${arguments[$context_i]} == -s ]]; then
+                context_dialect=${arguments[$((context_i + 1))]}
+                break
+            fi
+        done
+        if ! context_file=$(find_shellcheck_context "$x"); then
+            # it is not pseudo-boolean, but if context_explicit is populated then alert on fail to assign context_file
+            if [ "$context_explicit" ]; then
+                j_msg "-${err}" -p "ShellCheck context is missing or unreadable [$context_explicit]"
+            else
+                j_msg "-${err}" -p "No script_header_joetoo.shellcheck_filtered_stub found for [$x] within [$CONTEXT_ROOT]"
+            fi
+            context_exit_status=1
+            continue
+        fi
+        j_msg "-${debug}" -p "ShellCheck context for [$x]: [$context_file]"
+    fi
     # space with a blank line, and print file pathname, underlined
     [ ! "$COMPACT" ] && {
         echo; echo -e "${title_clr}${x}${Boff}";
@@ -395,16 +537,20 @@ for x in "${target_array[@]}" ; do
             # Note: use bash PIPESTATUS array to get exit status of the command, not the grep
             #   use setTIMEFORMAT.hdr (sourced above) function to customize time output (-l = long format)
             setTIMEFORMAT -l
-            time "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
-            if [ "${PIPESTATUS[0]}" -ne 0 ] ; then j_msg "-${err}" -m "$x failed syntax check"; fi
+            time run_selected_check 2>&1 | grep -v 'syntax OK'
+            if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
+                j_msg "-${err}" -m "$x failed syntax check"
+                [ "$CONTEXT_ENABLED" ] && context_exit_status=1
+            fi
             unset TIMEFORMAT
         else
             j_msg "-${debug}" -p "full command: [$executable ${arguments[*]} $x]"
             # Note: use bash PIPESTATUS array to get exit status of the command, not the grep
-            "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+            run_selected_check 2>&1 | grep -v 'syntax OK'
             if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
                  j_msg "-${err}" -m "$x failed syntax check"
             fi
+                 [ "$CONTEXT_ENABLED" ] && context_exit_status=1
         fi
     else
         # idx_* globals are generated by script_header_joetoo from the emoji registry
@@ -415,15 +561,17 @@ for x in "${target_array[@]}" ; do
             j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."
             #   use setTIMEFORMAT.hdr (sourced above) function to customize time output (-l = long format)
             setTIMEFORMAT -l
-            time "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+            time run_selected_check 2>&1 | grep -v 'syntax OK'
             result="${PIPESTATUS[0]}"
             unset TIMEFORMAT
+            if [ "$CONTEXT_ENABLED" ] && (( result != 0 )); then context_exit_status=1; fi
         else
             j_msg "-${debug}" -p "full command: [time $executable ${arguments[*]} $x]"
             j_msg "-${notice}" -mp -M "$idx_magnifying_glass_right" "checking $x ..."
-            "$executable" "${arguments[@]}" "$x" 2>&1 | grep -v 'syntax OK'
+            run_selected_check 2>&1 | grep -v 'syntax OK'
             result="${PIPESTATUS[0]}"
         fi
+            if [ "$CONTEXT_ENABLED" ] && (( result != 0 )); then context_exit_status=1; fi
         j_msg "-${notice}" -p -n "done; result:"
         handle_result "$result" "Ok $bin_check_mark_button" "errors $bin_cross_mark" "$notice"
     fi
@@ -440,3 +588,6 @@ if [ "$TIMERS" ] ; then
     msg="${BYon}$PN complete. ${BCon}Total elapsed time (DD:HH:MM:SS:mmm): ${BBon}[${BMon}$elapsed_time${BBon}]${Boff}"
     j_msg "-${notice}" -p "$msg"
 fi
+# In contextual lint mode missing context and ShellCheck errors must make the
+# overall command fail, rather than only printing an error line.
+if [ "$CONTEXT_ENABLED" ]; then exit "$context_exit_status"; fi
